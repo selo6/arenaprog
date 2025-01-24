@@ -42,7 +42,7 @@ def toggle_led(ser, i_led, value):
     leds_off = ['a', 'b', 'c', 'd', 'e', 'f']
     leds_on = ['A', 'B', 'C', 'D', 'E', 'F']
     
-    if not 0 <= i_led <= 3:
+    if not 0 <= i_led <= len(leds_off)-1:
         return ValueError("i_led has to be between 0 and 3")
 
     if value > 0:
