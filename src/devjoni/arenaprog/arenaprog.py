@@ -12,7 +12,7 @@ from devjoni.hosguibase.video import VideoWidget
 from .arenalib import Arena
 from .cardstimgen import CardStimWidget
 
-__version__ = '0.0.1'
+from .version import __version__
 
 IMAGE_UPDATE_INTERVAL = 10 # ms
 
