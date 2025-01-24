@@ -112,7 +112,7 @@ class StimView(gb.FrameWidget):
         root = self.get_root()    
         toplevel = gb.MainWindow(parent=root)
         
-        view = CardStimWidget(toplevel, 300, 300, make_nextbutton=False)
+        view = CardStimWidget(toplevel, 400, 400, make_nextbutton=False)
         #view.b_next.destroy()
         self.preview.next_card_callback = view.next_card
         view.grid()
