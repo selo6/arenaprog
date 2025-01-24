@@ -25,10 +25,10 @@ def detect_controller_devices():
         devs = [os.path.join('/dev', fn) for fn in os.listdir(
             '/dev') if fn.startswith('ttyACM')]
     elif system== "Windows":
-        coms = ['COM' for i in range(256)]
+        coms = [f'COM{i}' for i in range(256)]
         for com in coms:
             try:
-                ser = serial.Serial(port, 9600)
+                ser = serial.Serial(com, 9600)
                 ser.close()
                 devs.append(com)
             except:
