@@ -75,6 +75,7 @@ class Arena:
     def __init__(self, device=None, fake_serial=None):
         
         self.pos = 0
+        self.led_states = {}
         
         if fake_serial:
             self.ser = FakeSerial()
@@ -87,12 +88,20 @@ class Arena:
             device = devs[0]
 
         self.ser = serial.Serial(device, 9600)
-    
+        
+        
 
     def set_led(self, i_led, value):
         '''Set an LED on or off
         '''
+        self.led_states[i_led] = value
         return toggle_led(self.ser, i_led, value)
+
+    def get_led(self, i_led):
+        '''Returns True if the LED is on, otherwise False
+        '''
+        return bool(self.led_states.get(i_led, False))
+
 
     def get_N_leds(self):
         '''Returns the total amount of leds

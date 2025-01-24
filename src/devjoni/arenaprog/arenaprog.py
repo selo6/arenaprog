@@ -63,11 +63,22 @@ class LightView(gb.FrameWidget):
         
         self.led_buttons = []
         for i_led in range(self.arena.get_N_leds()):
-            b = gb.ButtonWidget(self, f'LED {i_led+1}')
+            b = gb.ButtonWidget(
+                    self, f'LED {i_led+1}',
+                    command=lambda i=i_led: self.toggle(i))
             b.grid(row=i_led, column=0)
             self.led_buttons.append(b)
+    
+    def toggle(self, i_led):
+        state = self.arena.get_led(i_led)
+        state = not state
 
-
+        self.arena.set_led(i_led, state)
+        
+        if state:
+            self.led_buttons[i_led].set(bg='green')
+        else:
+            self.led_buttons[i_led].set(bg='gray')
 
 class StimView(gb.FrameWidget):
     '''Control the stimulus presentation
