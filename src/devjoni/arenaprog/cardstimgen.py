@@ -81,7 +81,8 @@ def _draw_pie(image, x0, y0, x1, y1, variation):
 
 
 
-def create_onepie_images(N, width=CARD_WIDTH, height=CARD_HEIGHT):
+def create_onepie_images(N, width=CARD_WIDTH, height=CARD_HEIGHT,
+                         seed=None):
     '''Create a image with one pie
 
     Attributes
@@ -89,6 +90,8 @@ def create_onepie_images(N, width=CARD_WIDTH, height=CARD_HEIGHT):
     N : int
         The amount of slices in the pattern
     '''
+    setseed(seed)
+
     images = []
 
     for variation in _calc_variations(N):        
@@ -96,10 +99,17 @@ def create_onepie_images(N, width=CARD_WIDTH, height=CARD_HEIGHT):
         _draw_pie(image, 0, 0, width, height, variation)
         images.append(image)
 
+    setseed(None)
+
     return images
 
 
-def create_multipie_images(N, M, right='1010', width=CARD_WIDTH, height=CARD_HEIGHT):
+def setseed(state):
+    random.seed(state)
+
+
+
+def create_multipie_images(N, M, right='1010', width=CARD_WIDTH, height=CARD_HEIGHT, seed=None):
     '''Create a image with one pie
 
     Attributes
@@ -110,6 +120,8 @@ def create_multipie_images(N, M, right='1010', width=CARD_WIDTH, height=CARD_HEI
         The amount of patterns
     '''
     images = []
+
+    setseed(seed)
 
     right = right.zfill(M)[0:M]
     
@@ -146,6 +158,9 @@ def create_multipie_images(N, M, right='1010', width=CARD_WIDTH, height=CARD_HEI
                     variation)
 
         images.append(image)
+    
+    setseed(None)
+
 
     return images
 
@@ -185,7 +200,8 @@ class CardStimWidget(gb.FrameWidget):
     next_card_callback : None or callable
         Function or method to be called every time the card is changed
     '''
-    def __init__(self, parent, width=CARD_WIDTH, height=CARD_HEIGHT):
+    def __init__(self, parent, width=CARD_WIDTH, height=CARD_HEIGHT,
+                 make_nextbutton=True):
         super().__init__(parent)
 
         self.width = width
@@ -194,8 +210,9 @@ class CardStimWidget(gb.FrameWidget):
         self.cards = []
         self.current_card = None
         
-        self.b_next = gb.ButtonWidget(self, 'Next', command=self.next_card)
-        self.b_next.grid(row=0, column=0)
+        if make_nextbutton:
+            self.b_next = gb.ButtonWidget(self, 'Next', command=self.next_card)
+            self.b_next.grid(row=0, column=0)
         
         self.set(bg="black")
 
@@ -241,22 +258,33 @@ class CardStimWidget(gb.FrameWidget):
 
         self.cards.append(card)
 
+    def clear_cards(self):
+        self.cards = []
 
-    def create_onepie_cards(self, N=4):
+    def create_onepie_cards(self, N=4, seed=None):
         '''Change to onepie cards
         '''
+        self.clear_cards()
+
         images = create_onepie_images(
-                N, width=self.width, height=self.height)
+                N, width=self.width, height=self.height,
+                seed=seed)
         for image in images:
             self.create_card(image)
+        self.current_card = None
 
 
-    def create_multipie_cards(self, N=4, M=4):
+    def create_multipie_cards(self, N=4, M=4, seed=None):
+
+        self.clear_cards()
+
         images = create_multipie_images(
-                N, M, width=self.width, height=self.height)
+                N, M, width=self.width, height=self.height,
+                seed=seed)
         for image in images:
             self.create_card(image)
 
+        self.current_card = None
 
 
 def main():

@@ -4,6 +4,7 @@
 import sys
 import atexit
 import platform
+import random
 
 import devjoni.guibase as gb
 from devjoni.hosguibase.video import VideoWidget
@@ -91,11 +92,13 @@ class StimView(gb.FrameWidget):
         self.view = None
 
     def generate_cards(self):
-        self.preview.create_multipie_cards()
+        seed = random.random()
+
+        self.preview.create_multipie_cards(seed=seed)
         self.preview.next_card()
     
         if self.view:
-            self.view[1].create_multipie_cards()
+            self.view[1].create_multipie_cards(seed=seed)
             self.view[1].next_card()
 
     def open_window(self):
@@ -109,8 +112,8 @@ class StimView(gb.FrameWidget):
         root = self.get_root()    
         toplevel = gb.MainWindow(parent=root)
         
-        view = CardStimWidget(toplevel, 300, 300)
-        view.b_next.destroy()
+        view = CardStimWidget(toplevel, 300, 300, make_nextbutton=False)
+        #view.b_next.destroy()
         self.preview.next_card_callback = view.next_card
         view.grid()
 
