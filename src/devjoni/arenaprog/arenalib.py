@@ -10,7 +10,7 @@ import serial
 class FakeSerial:
     def write(self, message):
         return f'fakeserial: {message}'
-    def readline():
+    def readline(self):
         return ''
 
 def _say(ser, message):
