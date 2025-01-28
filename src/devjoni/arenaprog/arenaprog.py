@@ -276,6 +276,7 @@ class FastCameraView(gb.FrameWidget):
                         'mjpeg']
             else:
                 opts = ['-f', 'dshow', '-video_size', '1280x800',
+                        '-rtbufsize', '200M',
                         '-framerate', 100, '-vcodec', 'mjpeg']
             self.video.tcoder.source_opts = opts
         else:
