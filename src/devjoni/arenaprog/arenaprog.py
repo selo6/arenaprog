@@ -250,6 +250,7 @@ class FastCameraView(gb.FrameWidget):
         self.record_fn = 'test.mp4'
         self.record_fps = 100
 
+    
         cameras = self.video.tcoder.detect_cameras()
         if cameras:
             self.video.source = cameras[0]
@@ -257,8 +258,9 @@ class FastCameraView(gb.FrameWidget):
 
     def play(self):
         if self.do_record:
+            self.video.tcoder.fps = self.record_fps
             self.video.tcoder.set_video_output(
-                    self.record_fn, fps=self.record_fps,
+                    self.record_fn,
                     opts=[
                         '-c:v', 'libx264',
                         '-preset', 'ultrafast',
@@ -277,6 +279,7 @@ class FastCameraView(gb.FrameWidget):
                         '-framerate', 100, '-vcodec', 'mjpeg']
             self.video.tcoder.source_opts = opts
         else:
+            self.video.tcoder.fps = self.video.fps
             self.video.tcoder.set_video_output(None)
             self.video.tcoder.source_opts = None
         self.video.start()
