@@ -282,15 +282,17 @@ class FastCameraView(gb.FrameWidget):
             
             # Enforce that the webcam is being read fast
             # Arducam UC-844
+            self.video.source == 'Arducam OV9'
             system = platform.system()
             if system == 'Linux':
-                opts = ['-f', 'v4l2', '-framerate', 100,
-                        '-video_size', '1280x800', '-input_format',
-                        'mjpeg']
+                opts = ['-f', 'v4l2',# '-framerate', str(100),
+                        #'-video_size', '1280x800',
+                        '-input_format', 'mjpeg']
             else:
-                opts = ['-f', 'dshow', '-video_size', '1280x800',
+                opts = ['-f', 'dshow', #'-video_size', '1280x800',
                         '-rtbufsize', '200M',
-                        '-framerate', 100, '-vcodec', 'mjpeg']
+                        #'-framerate', str(100),
+                        '-vcodec', 'mjpeg']
             self.video.tcoder.source_opts = opts
         else:
             self.video.fps = 10
