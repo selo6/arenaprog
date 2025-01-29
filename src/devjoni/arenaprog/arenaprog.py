@@ -160,7 +160,16 @@ class CameraControlView(gb.FrameWidget):
         self.record_details = gb.TextWidget(
                 self, text='')
         self.record_details.grid(row=0, column=4)
-  
+        
+        self.filename = gb.EntryWidget(self)
+        self.filename.set_input('test')
+        self.filename.grid(row=1,column=0, columnspan=3)
+
+        self.fps = gb.EntryWidget(self)
+        self.fps.set_input('10')
+        self.fps.grid(row=1,column=3)
+
+
 
     def play(self):
         self.camera_view.play()
@@ -169,6 +178,10 @@ class CameraControlView(gb.FrameWidget):
         self.camera_view.stop()
     
     def record(self):
+        
+        self.camera_view.record_fn = self.filename.get_input()
+        self.camera_view.record_fps = int(self.fps.get_input())
+
         self.camera_view.record()
         if self.camera_view.do_record:
             self.record.set(bg="red")
@@ -200,7 +213,6 @@ class CameraView(gb.FrameWidget):
         
         self.image = gb.ImageImage(None, 200,200)
         self.canvas = gb.ImageWidget(self, self.image)
-
         self.canvas.grid(0,0, sticky='NSWE')
 
         self._is_playing = False
@@ -247,7 +259,7 @@ class FastCameraView(gb.FrameWidget):
         self.ffmpeg_line = ''
 
         self.do_record = False
-        self.record_fn = 'test.mp4'
+        self.record_fn = 'test'
         self.record_fps = 100
 
     
@@ -258,9 +270,10 @@ class FastCameraView(gb.FrameWidget):
 
     def play(self):
         if self.do_record:
-            self.video.tcoder.fps = self.record_fps
+            self.video.fps = self.record_fps
             self.video.tcoder.set_video_output(
-                    self.record_fn,
+                    self.record_fn+'.mp4',
+                    resolution=[1280,800],
                     opts=[
                         '-c:v', 'libx264',
                         '-preset', 'ultrafast',
@@ -280,7 +293,7 @@ class FastCameraView(gb.FrameWidget):
                         '-framerate', 100, '-vcodec', 'mjpeg']
             self.video.tcoder.source_opts = opts
         else:
-            self.video.tcoder.fps = self.video.fps
+            self.video.fps = 10
             self.video.tcoder.set_video_output(None)
             self.video.tcoder.source_opts = None
         self.video.start()
