@@ -282,7 +282,6 @@ class FastCameraView(gb.FrameWidget):
             
             # Enforce that the webcam is being read fast
             # Arducam UC-844
-            self.video.source == 'Arducam OV9'
             system = platform.system()
             if system == 'Linux':
                 opts = ['-f', 'v4l2',# '-framerate', str(100),

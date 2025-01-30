@@ -80,6 +80,32 @@ def _draw_pie(image, x0, y0, x1, y1, variation):
     ctx.circle(cp,r)
 
 
+def create_centraldot_images(r_rel, width=CARD_WIDTH, height=CARD_HEIGHT,
+                             seed=None):
+    '''
+    r_rel : float
+        Radius relative to the smallest image dimension, width or height
+    '''
+
+    images = []
+
+    setseed(seed)
+    
+    for i in range(25):
+        image = Image.new('RGB', (width, height))
+        ctx = ImageDraw.Draw(image)
+        
+        R = int(r_rel*min(width, height)/2)
+        cp = [int((width-R*2)*random.random()+R),
+              int((height-R*2)*random.random()+R)]
+        
+        ctx.circle(cp, R, fill=(255,255,255))
+        images.append(image)
+
+    setseed(None)
+
+    return images
+
 
 def create_onepie_images(N, width=CARD_WIDTH, height=CARD_HEIGHT,
                          seed=None):
@@ -103,6 +129,19 @@ def create_onepie_images(N, width=CARD_WIDTH, height=CARD_HEIGHT,
 
     return images
 
+def create_stripe_image(width=CARD_WIDTH, height=CARD_HEIGHT, seed=None):
+    setseed(seed)
+    
+
+    image = Image.new('RGB', (width, height))
+    ctx = ImageDraw.Draw(image)
+
+    for i in range(0,height,10):
+         ctx.line((0,i), (width-1, i))
+
+    setseed(None)
+
+    return [image]
 
 def setseed(state):
     random.seed(state)
@@ -204,6 +243,15 @@ class CardStimWidget(gb.FrameWidget):
                  make_nextbutton=True):
         super().__init__(parent)
 
+
+        self.card_methods = [
+            self.create_centraldot_cards,
+            self.create_onepie_cards,
+            self.create_multipie_cards,
+            #self.create_stripe_cards,
+            ]
+
+
         self.width = width
         self.height = height
 
@@ -261,6 +309,22 @@ class CardStimWidget(gb.FrameWidget):
     def clear_cards(self):
         self.cards = []
 
+    
+    def create_centraldot_cards(self, seed=None):
+        '''Create cards that show one central dot
+        '''
+        self.clear_cards()
+
+        images = create_centraldot_images(
+                r_rel=0.2, width=self.width, height=self.height,
+                seed=seed
+                )
+
+        for image in images:
+            self.create_card(image)
+        self.current_card = None
+
+
     def create_onepie_cards(self, N=4, seed=None):
         '''Change to onepie cards
         '''
@@ -286,6 +350,15 @@ class CardStimWidget(gb.FrameWidget):
 
         self.current_card = None
 
+
+    def create_stripe_cards(self, seed=None):
+        self.clear_cards()
+
+        images = create_stripe_images(self.width,self.height,seed)
+        for image in images:
+            self.create_card(image)
+
+        self.current_card = None
 
 def main():
     
