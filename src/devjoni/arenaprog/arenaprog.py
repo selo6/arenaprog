@@ -86,31 +86,54 @@ class StimView(gb.FrameWidget):
     def __init__(self, parent):
 
         super().__init__(parent)
+        
+        self.b_change = gb.ButtonWidget(
+                self, 'Change type',
+                command=self.change_type)
+        self.b_change.grid(row=0, column=0)
 
         self.b_generate = gb.ButtonWidget(
                 self, 'Generate cards',
                 command=self.generate_cards)
-        self.b_generate.grid(row=0, column=0)
+        self.b_generate.grid(row=1, column=0)
         
         self.b_open = gb.ButtonWidget(
                 self, 'Open in window',
                 command=self.open_window)
-        self.b_open.grid(row=2, column=0)
+        self.b_open.grid(row=3, column=0)
         
         self.preview = CardStimWidget(self, 100, 100)
-        self.preview.grid(row=1, column=0)
+        self.preview.grid(row=2, column=0)
 
         self.view = None
+
+        self.active_type = 0
+
 
     def generate_cards(self):
         seed = random.random()
 
-        self.preview.create_multipie_cards(seed=seed)
+        self.preview.card_methods[self.active_type](seed=seed)
         self.preview.next_card()
     
         if self.view:
-            self.view[1].create_multipie_cards(seed=seed)
+            self.view[1].card_methods[self.active_type](seed=seed)
             self.view[1].next_card()
+
+    
+    def save_card(self):
+        pass
+
+    def change_type(self):
+        i = self.active_type
+        i+=1
+        N = len(self.preview.card_methods)
+
+        if i>=N:
+            i = 0
+
+        self.active_type = i
+        self.b_change.set(text=f"Change type ({i+1}/{N})")
 
     def open_window(self):
         
