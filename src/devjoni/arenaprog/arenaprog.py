@@ -340,21 +340,22 @@ class FastCameraView(gb.FrameWidget):
 
 
 class TotalView(gb.FrameWidget):
-    def __init__(self, parent):
+    def __init__(self, parent, do_camera=True):
         super().__init__(parent)
 
         # Camera side
 
-        camerabox = gb.FrameWidget(self)
-        camerabox.grid(row=0, column=1, rowspan=2)
+        if do_camera:
+            camerabox = gb.FrameWidget(self)
+            camerabox.grid(row=0, column=1, rowspan=2)
         
-        control = CameraControlView(camerabox)
-        control.grid(row=0, column=0, sticky='')
+            control = CameraControlView(camerabox)
+            control.grid(row=0, column=0, sticky='')
 
-        camera = FastCameraView(camerabox)
-        camera.grid(row=1, column=0)
+            camera = FastCameraView(camerabox)
+            camera.grid(row=1, column=0)
 
-        control.camera_view = camera
+            control.camera_view = camera
 
         # Motion control side
         
@@ -373,17 +374,25 @@ class TotalView(gb.FrameWidget):
         light.grid(row=0, column=1)
 
         # Stimulus
-
         stim = StimView(self)
-        stim.grid(row=1, column=0)
-
+        if do_camera:
+            stim.grid(row=1, column=0)
+        else:
+            stim.grid(row=0, column=1)
 
 def main():
 
     window = gb.MainWindow()
     window.title = f'Arena Program - v{__version__}'
+    
 
-    view = TotalView(window)
+    if '--noarena' in sys.argv:
+        do_camera = False
+        window.geometry = 'small'
+    else:
+        do_camera = True
+
+    view = TotalView(window, do_camera=do_camera)
     view.grid()
 
 
