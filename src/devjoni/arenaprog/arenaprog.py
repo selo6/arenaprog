@@ -457,7 +457,7 @@ def main():
     window.title = f'Arena Program - v{__version__}'
     
 
-    if '--noarena' in sys.argv:
+    if '--nocamera' in sys.argv:
         do_camera = False
         window.geometry = 'small'
     else:
