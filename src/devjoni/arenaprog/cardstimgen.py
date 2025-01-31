@@ -266,7 +266,7 @@ class CardStimWidget(gb.FrameWidget):
 
         self.next_card_callback = None
 
-    def next_card(self):
+    def next_card(self, do_callback=True):
         if not self.cards:
             return
 
@@ -274,7 +274,10 @@ class CardStimWidget(gb.FrameWidget):
             index = 0
         else:
             index = self.cards.index(self.current_card)
-            self.current_card.grid_remove()
+            try:
+                self.current_card.grid_remove()
+            except Exception as e:
+                print(e)
             index+=1
 
         if index >= len(self.cards)-1:
@@ -283,7 +286,7 @@ class CardStimWidget(gb.FrameWidget):
         self.current_card = self.cards[index]
         self.current_card.grid(row=1, column=0)
 
-        if callable(self.next_card_callback):
+        if do_callback and callable(self.next_card_callback):
             self.next_card_callback()
 
     def create_card(self, image):

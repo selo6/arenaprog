@@ -17,6 +17,8 @@ from .version import __version__
 IMAGE_UPDATE_INTERVAL = 10 # ms
 
 
+
+
 class MovementView(gb.FrameWidget):
     '''Control the arena lift up and down
     '''
@@ -69,6 +71,10 @@ class LightView(gb.FrameWidget):
             b.grid(row=i_led, column=0)
             self.led_buttons.append(b)
     
+        self.reward_button = gb.ButtonWidget(
+                self, f'Reward 1s', command=self.do_reward)
+        self.reward_button.grid(row=i_led+1,column=0)
+
     def toggle(self, i_led):
         state = self.arena.get_led(i_led)
         state = not state
@@ -79,6 +85,14 @@ class LightView(gb.FrameWidget):
             self.led_buttons[i_led].set(bg='green')
         else:
             self.led_buttons[i_led].set(bg='gray')
+
+    def do_reward(self, repeat=True):
+        for i_led in range(4):
+            self.toggle(i_led)
+        if repeat:
+            self.after(1000, lambda : self.do_reward(False))
+            self.parent.parent.stop_clock()
+
 
 class StimView(gb.FrameWidget):
     '''Control the stimulus presentation
@@ -104,6 +118,7 @@ class StimView(gb.FrameWidget):
         
         self.preview = CardStimWidget(self, 100, 100)
         self.preview.grid(row=2, column=0)
+        self.preview.next_card_callback = self.next_card_callback
 
         self.view = None
 
@@ -114,11 +129,11 @@ class StimView(gb.FrameWidget):
         seed = random.random()
 
         self.preview.card_methods[self.active_type](seed=seed)
-        self.preview.next_card()
+        self.preview.next_card(do_callback=False)
     
         if self.view:
             self.view[1].card_methods[self.active_type](seed=seed)
-            self.view[1].next_card()
+            self.view[1].next_card(do_callback=False)
 
     
     def save_card(self):
@@ -148,11 +163,16 @@ class StimView(gb.FrameWidget):
         
         view = CardStimWidget(toplevel, 400, 400, make_nextbutton=False)
         #view.b_next.destroy()
-        self.preview.next_card_callback = view.next_card
         view.grid()
 
         self.view = [toplevel, view]
-        
+     
+    def next_card_callback(self):
+        if self.view:
+            self.view[1].next_card()
+        self.parent.start_clock()
+
+
 
 class CameraControlView(gb.FrameWidget):
     '''Camera controls like start imaging, recording etc.
@@ -366,11 +386,13 @@ class TotalView(gb.FrameWidget):
     def __init__(self, parent, do_camera=True):
         super().__init__(parent)
 
+
+
         # Camera side
 
         if do_camera:
             camerabox = gb.FrameWidget(self)
-            camerabox.grid(row=0, column=1, rowspan=2)
+            camerabox.grid(row=1, column=1, rowspan=2)
         
             control = CameraControlView(camerabox)
             control.grid(row=0, column=0, sticky='')
@@ -388,7 +410,7 @@ class TotalView(gb.FrameWidget):
             arena = Arena(fake_serial=True)
 
         controlbox = gb.FrameWidget(self)
-        controlbox.grid(row=0, column=0)
+        controlbox.grid(row=1, column=0)
  
         movement = MovementView(controlbox, arena)
         movement.grid(row=0, column=0)
@@ -399,9 +421,34 @@ class TotalView(gb.FrameWidget):
         # Stimulus
         stim = StimView(self)
         if do_camera:
-            stim.grid(row=1, column=0)
+            stim.grid(row=2, column=0)
         else:
-            stim.grid(row=0, column=1)
+            stim.grid(row=1, column=1)
+        self.stim = stim
+    
+        self.time = 0
+        self.clock_running=False
+        self.time_widget = gb.TextWidget(self, 'time (s)')
+        self.time_widget.grid(row=0, column=0, sticky='WE')
+
+    def start_clock(self):
+        self.time = 0
+        self.clock_running = True
+        self.update_clock()
+
+    def update_clock(self):
+        self.time += 0.1
+        self.time_widget.set(text=f'{self.time:.2f} seconds')
+        if self.clock_running:
+            self.after(100, self.update_clock)
+        else:
+            self.stim.preview.current_card.grid_remove()
+            if self.stim.view:
+                self.stim.view[1].current_card.grid_remove()
+
+    def stop_clock(self):
+        self.clock_running = False
+
 
 def main():
 
