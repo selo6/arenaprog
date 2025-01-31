@@ -91,7 +91,7 @@ def create_centraldot_images(r_rel, width=CARD_WIDTH, height=CARD_HEIGHT,
 
     setseed(seed)
     
-    for i in range(25):
+    for i in range(10):
         image = Image.new('RGB', (width, height))
         ctx = ImageDraw.Draw(image)
         
@@ -316,7 +316,7 @@ class CardStimWidget(gb.FrameWidget):
         self.clear_cards()
 
         images = create_centraldot_images(
-                r_rel=0.2, width=self.width, height=self.height,
+                r_rel=0.1, width=self.width, height=self.height,
                 seed=seed
                 )
 
