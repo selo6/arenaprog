@@ -428,13 +428,14 @@ class TotalView(gb.FrameWidget):
     
         self.time = 0
         self.clock_running=False
-        self.time_widget = gb.TextWidget(self, 'time (s)')
+        self.time_widget = gb.TextWidget(self, 'Time (s)')
         self.time_widget.grid(row=0, column=0, sticky='WE')
 
     def start_clock(self):
         self.time = 0
-        self.clock_running = True
-        self.update_clock()
+        if not self.clock_running:
+            self.clock_running = True
+            self.update_clock()
 
     def update_clock(self):
         self.time += 0.1
