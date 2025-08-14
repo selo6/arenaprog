@@ -159,13 +159,15 @@ class StimView(gb.FrameWidget):
             self.preview.next_card_callback = None
 
         root = self.get_root()    
-        toplevel = gb.MainWindow(parent=root)
+        toplevel = gb.MainWindow(parent=root,fullscreen=False,window_geom="800x600+100+10")
         
         view = CardStimWidget(toplevel, 400, 400, make_nextbutton=False)
         #view.b_next.destroy()
         view.grid()
 
         self.view = [toplevel, view]
+
+        
      
     def next_card_callback(self):
         if self.view:
@@ -460,14 +462,17 @@ def main():
     if '--nocamera' in sys.argv:
         do_camera = False
         window.geometry = 'small'
+        
     else:
         do_camera = True
+
 
     view = TotalView(window, do_camera=do_camera)
     view.grid()
 
 
     window.run()
+    
 
 if __name__ == "__main__":
     main()

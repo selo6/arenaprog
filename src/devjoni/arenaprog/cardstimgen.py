@@ -367,7 +367,6 @@ def main():
     
     window = gb.MainWindow()
     window.title = f'Test stimulus'
-
     
     view = CardStimWidget(window)
     view.grid()
