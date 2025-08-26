@@ -12,20 +12,6 @@ from devjoni.hosguibase.video import VideoWidget
 from .arenalib import Arena
 from .cardstimgen import CardStimWidget
 
-import cv2
-
-# Import the video capturing function
-from .video_capture_openCV import VideoCaptureAsync
-from .camera_record_openCV import record_video_cv2
-from .camera_record_openCV import preview_video_cv2
-
-#get the module to run multiprocessing
-#from multiprocessing import Process
-import threading
-from queue import Queue, Empty
-
-import time
-
 from .version import __version__
 
 IMAGE_UPDATE_INTERVAL = 10 # ms
@@ -219,67 +205,20 @@ class CameraControlView(gb.FrameWidget):
         self.record_details.grid(row=0, column=4)
         
         self.filename = gb.EntryWidget(self)
-        self.filename.set_input('video.avi')
+        self.filename.set_input('test')
         self.filename.grid(row=1,column=0, columnspan=3)
 
         self.fps = gb.EntryWidget(self)
         self.fps.set_input('10')
         self.fps.grid(row=1,column=3)
 
-        self.q_video = Queue()
-
-
 
 
     def play(self):
-        #function that launch the preview_video_cv2() function below in a new thread to keep the main gui responsive
-
-        # Clear any leftover stop signals
-        while not self.q_video.empty():
-            self.q_video.get_nowait()
-
-        #start the the preview using a new thread from the cpu so the main GUI stays active
-        thrd_preview = threading.Thread(target=self.preview_video_cv2, daemon=True)
-        thrd_preview.start()
-        
-
+        self.camera_view.play()
 
     def stop(self):
-        
-        #trigger a stop for the while loop in the preview_video_cv2() or the record_video_cv2() functions
-        #Send a stop signal to the video thread
-        self.q_video.put("stop")
-
-
-    def preview_video_cv2(self):
-
-        cv2.namedWindow("preview")
-        vc = cv2.VideoCapture(0)
-
-        if vc.isOpened(): # try to get the first frame
-            rval, frame = vc.read()
-        else:
-            rval = False
-
-        while rval and vc.isOpened(): 
-            cv2.imshow("preview", frame)
-            rval, frame = vc.read()
-            if cv2.waitKey(1) & 0xFF == ord('q'): #press q to exit
-                break
-            if cv2.getWindowProperty('preview',cv2.WND_PROP_VISIBLE) < 1: #or check that the display window has been manually closed by the user
-                break
-            # Or check if stop was requested by clicking the stop button
-            try:
-                msg = self.q_video.get_nowait()
-                if msg == "stop":
-                    break
-            except Empty:
-                pass
-
-        cv2.destroyAllWindows()
-        vc.release()
- 
-        
+        self.camera_view.stop()
     
     def record(self):
         
@@ -458,10 +397,10 @@ class TotalView(gb.FrameWidget):
             control = CameraControlView(camerabox)
             control.grid(row=0, column=0, sticky='')
 
-            #camera = FastCameraView(camerabox)
-            #camera.grid(row=1, column=0)
+            camera = FastCameraView(camerabox)
+            camera.grid(row=1, column=0)
 
-            #control.camera_view = camera
+            control.camera_view = camera
 
         # Motion control side
         
