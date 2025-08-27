@@ -37,7 +37,7 @@ def record_video_cv2(duration=None, vid_w = 1280, vid_h = 800, preview_rate=10,s
     #Create array to hold frames from capture
     images = []
     # Capture for duration defined by variable 'duration'
-    while cap.isOpened() or time.time() <= time_end:
+    while capture.isOpened() and time.time() <= time_end:
         ret, new_frame = capture.read()
         frames += 1
         images.append(new_frame)

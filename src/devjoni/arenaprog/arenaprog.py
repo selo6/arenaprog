@@ -5,6 +5,7 @@ import sys
 import atexit
 import platform
 import random
+import os
 
 import devjoni.guibase as gb
 from devjoni.hosguibase.video import VideoWidget
@@ -226,13 +227,12 @@ class CameraControlView(gb.FrameWidget):
         self.fps.set_input('10')
         self.fps.grid(row=1,column=3)
 
+        #create a queue so we can pass stoping messages to the video preview and recording threads.
         self.q_video = Queue()
 
 
-
-
     def play(self):
-        #function that launch the preview_video_cv2() function below in a new thread to keep the main gui responsive
+        '''function that launch the preview_video_cv2() function below in a new thread to keep the main gui responsive'''
 
         # Clear any leftover stop signals
         while not self.q_video.empty():
@@ -242,6 +242,20 @@ class CameraControlView(gb.FrameWidget):
         thrd_preview = threading.Thread(target=self.preview_video_cv2, daemon=True)
         thrd_preview.start()
         
+    
+    def record(self):
+        '''function that starts the recording process in a new thread so the main gui stays responsive.'''
+
+        # Clear any leftover stop signals
+        while not self.q_video.empty():
+            self.q_video.get_nowait()
+
+        # get filename from the GUI inputs
+        save_path = self.filename.get_input().strip() or "video.avi"
+
+        #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
+        thrd_record = threading.Thread(target=self.record_video_cv2,kwargs={"save_path": save_path, "save_codec": "DIVX"}, daemon=True)
+        thrd_record.start()
 
 
     def stop(self):
@@ -281,22 +295,98 @@ class CameraControlView(gb.FrameWidget):
  
         
     
-    def record(self):
-        
-        self.camera_view.record_fn = self.filename.get_input()
-        self.camera_view.record_fps = int(self.fps.get_input())
+    def record_video_cv2(self,duration=0, vid_w = 1280, vid_h = 800, preview_rate=10,save_path='video.avi',save_codec='XVID'):
+        '''Used to record videos using the opencv package.
+        Optional parameters:
+        duration --> (in seconds) if user wants to stop the recording after a given duration. If 0, the recording needs to be stopped manually.
+        vid_w --> recording width in pixels.
+        vid_h --> recording height in pixels.
+        preview_rate --> rate of frames from the recording that will also be displayed to the user. 
+                        By default every 10 frames will be displayed. A lower number will increase the strain on the system and may slowe down the recording rate.
+        save_path --> character string of the full path of the video to be saved (folder path + video name + extention, usually .avi)
+        save_codec --> codec to use to save the video. 'XVID' and 'DIVX' works. Check to see what else is available. Please change the file expension accordingly.'''
+        #clode the opencv windows that were already open (like if we made a previsualisation one) before to start recording
+        cv2.destroyAllWindows()
 
-        self.camera_view.record()
-        if self.camera_view.do_record:
-            self.record.set(bg="red")
-            fn = self.camera_view.record_fn
-            fps = self.camera_view.record_fps
-            self.record_details.set(
-                    text=f'{fn} @ {fps}'
-                    )
+        #Intiate Video Capture object
+        capture = VideoCaptureAsync(src=0, width=vid_w, height=vid_h)
+        #Intiate codec for Video recording object
+        ext = os.path.splitext(save_path)[1].lower()
+        if ext == ".avi":
+            fourcc = cv2.VideoWriter_fourcc(*"XVID")
+        elif ext == ".mp4":
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         else:
-            self.record.set(bg="gray")
-            self.record_details.set(text='Recording finished')
+            save_path += ".avi"
+            fourcc = cv2.VideoWriter_fourcc(*"XVID")
+        
+        #start video capture
+        capture.start()
+
+        #get the time when the recording starts
+        time_start = time.time()
+
+        #if the user mentionned a maximum duration we compute the end time, otherwise we give one in 10 years (an crazy far so we don't have to worry about the recording stopping on its own)
+        if duration!=0:
+            time_end = time.time() + duration
+        else:
+            time_end = time.time() + 3.154e+8
+
+        frames = 0
+        #Create array to hold frames from capture
+        images = []
+        # Capture for duration defined by variable 'duration'
+        while time.time() <= time_end:
+            ret, new_frame = capture.read()
+            frames += 1
+            images.append(new_frame)
+            # Create a full screen video display. Comment the following 2 lines if you have a specific dimension 
+            # of display window in mind and don't mind the window title bar.
+            #cv2.namedWindow('image',cv2.WND_PROP_FULLSCREEN)
+            #cv2.setWindowProperty('image', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+            # Here only every 10th frame is shown on the display. Change the preview_rate to a value suitable to the project by passing the value in the function. 
+            # The higher the number, the more processing required and the slower it becomes
+            if frames ==0 or frames%preview_rate == 0:
+                # This project used a Pitft screen and needed to be displayed in fullscreen. 
+                # The larger the frame, higher the processing and slower the program.
+                # Uncomment the following line if you have a specific display window in mind. 
+                frame = cv2.resize(new_frame,(1280,800))
+                frame = cv2.flip(frame,180)
+                cv2.imshow('frame', frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'): #press q to stop the process
+                break
+            #or check that the display window has been manually closed by the user
+            if frames>20 and cv2.getWindowProperty('frame',cv2.WND_PROP_VISIBLE) < 1: #we added a frame delay because the window takes time to appear and thus this line stops the loop after one frame (even if we put frames>1 it is not enough)
+                break
+            # Or check if stop was requested by clicking the stop button
+            try:
+                msg = self.q_video.get_nowait()
+                if msg == "stop":
+                    break
+            except Empty:
+                pass
+        capture.stop()
+        cv2.destroyAllWindows()
+        # The fps variable which counts the number of frames and divides it by 
+        # the duration gives the frames per second which is used to record the video later.
+        time_total=time.time() - time_start
+        fps = frames/time_total
+        print(frames)
+        print(len(images)) 
+        print(time_total)
+        print(fps)
+        # The following line initiates the video object and video file named 'video.avi' 
+        # of width and height declared at the beginning.
+        out = cv2.VideoWriter(save_path, fourcc, fps, (vid_w,vid_h))
+        print("creating video")
+        # The loop goes through the array of images and writes each image to the video file
+        for img in images:
+            if img.shape[1] != vid_w or img.shape[0] != vid_h: #if the image captured is not matching the one passed to the video writer, make it match. 
+                img = cv2.resize(img, (vid_w, vid_h))
+            out.write(img)
+        images = []
+        print("Done")
+
 
     def next_camera(self):
         self.camera_view.next_camera()
