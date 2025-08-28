@@ -168,7 +168,7 @@ class WidgetBase(GuiBase, CommonWidgetBase):
     
     def set(self, text=None, bg=None, active_bg=None, resize_handler=None,
             leftclick_handler=None, rightclick_handler=None,
-            enter_handler=None, exit_handler=None):
+            enter_handler=None, exit_handler=None, state=None):
         '''Configure extra settings supported by all widgets.
 
         Setting a parameter to None makes no changes to the setting
@@ -186,6 +186,9 @@ class WidgetBase(GuiBase, CommonWidgetBase):
             It is better to use a command where applicable.
         enter_handler, exit_handler : callable or False
             When mouse comes to hover over and leaves
+        state: string
+            'desactivate' to make the button greyed out and not usable
+            'normal' to make the button usable again
         '''
         if text is not None:
             self.tk.configure(text=text)
@@ -207,6 +210,8 @@ class WidgetBase(GuiBase, CommonWidgetBase):
             self.tk.bind('<Enter>', enter_handler)
         if exit_handler is not None:
             self.tk.bind('<Enter>', exit_handler)
+        if state is not None:
+            self.tk.configure(state=state)
     
     def get(self, key):
         return self.tk.cget(key)

@@ -15,10 +15,11 @@ from .cardstimgen import CardStimWidget
 
 import cv2
 
+#import an opensource package that detects cameras
+from cv2_enumerate_cameras import enumerate_cameras
+
 # Import the video capturing function
 from .video_capture_openCV import VideoCaptureAsync
-from .camera_record_openCV import record_video_cv2
-from .camera_record_openCV import preview_video_cv2
 
 #get the module to run multiprocessing
 #from multiprocessing import Process
@@ -204,15 +205,14 @@ class CameraControlView(gb.FrameWidget):
 
         self.play = gb.ButtonWidget(self, text='Play', command=self.play)
         self.play.grid(row=0, column=0)
+
         self.stop = gb.ButtonWidget(self, text='Stop', command=self.stop)
         self.stop.grid(row=0, column=1)
         
-        self.change = gb.ButtonWidget(
-                self, text='Change camera', command=self.next_camera)
+        self.change = gb.ButtonWidget(self, text='Next camera', command=self.next_camera)
         self.change.grid(row=0, column=2)
    
-        self.record = gb.ButtonWidget(
-                self, text='Record', command=self.record)
+        self.record = gb.ButtonWidget(self, text='Record', command=self.record)
         self.record.grid(row=0, column=3)
         
         self.record_details = gb.TextWidget(
@@ -227,6 +227,16 @@ class CameraControlView(gb.FrameWidget):
         self.fps.set_input('10')
         self.fps.grid(row=1,column=3)
 
+        #get the list of active camras
+        self.camera_list=enumerate_cameras(cv2.CAP_MSMF)
+
+        #set the camera number as the first one
+        if len(self.camera_list)<1: #if there are no camera detected, let the user know
+            print('No camera detected')
+        else: #if there are cameras, select the first one and print its info
+            self.camera=0
+            print(self.camera_list[self.camera])
+        
         #create a queue so we can pass stoping messages to the video preview and recording threads.
         self.q_video = Queue()
 
@@ -237,6 +247,9 @@ class CameraControlView(gb.FrameWidget):
         # Clear any leftover stop signals
         while not self.q_video.empty():
             self.q_video.get_nowait()
+
+        #deactivate the buttons so the user doesn't try to trigger another recording or preview while one is running
+        self.disable_controls()
 
         #start the the preview using a new thread from the cpu so the main GUI stays active
         thrd_preview = threading.Thread(target=self.preview_video_cv2, daemon=True)
@@ -250,9 +263,12 @@ class CameraControlView(gb.FrameWidget):
         while not self.q_video.empty():
             self.q_video.get_nowait()
 
+        #deactivate the buttons so the user doesn't try to trigger another recording or preview while one is running
+        self.disable_controls()
+
         # get filename from the GUI inputs
         save_path = self.filename.get_input().strip() or "video.avi"
-
+        
         #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
         thrd_record = threading.Thread(target=self.record_video_cv2,kwargs={"save_path": save_path, "save_codec": "DIVX"}, daemon=True)
         thrd_record.start()
@@ -268,7 +284,7 @@ class CameraControlView(gb.FrameWidget):
     def preview_video_cv2(self):
 
         cv2.namedWindow("preview")
-        vc = cv2.VideoCapture(0)
+        vc = cv2.VideoCapture(self.camera)
 
         if vc.isOpened(): # try to get the first frame
             rval, frame = vc.read()
@@ -289,9 +305,13 @@ class CameraControlView(gb.FrameWidget):
                     break
             except Empty:
                 pass
-
+        
+        #stop the video process
         cv2.destroyAllWindows()
         vc.release()
+
+        #reanable the buttons in the gui
+        self.enable_controls()
  
         
     
@@ -309,7 +329,7 @@ class CameraControlView(gb.FrameWidget):
         cv2.destroyAllWindows()
 
         #Intiate Video Capture object
-        capture = VideoCaptureAsync(src=0, width=vid_w, height=vid_h)
+        capture = VideoCaptureAsync(src=self.camera, width=vid_w, height=vid_h)
         #Intiate codec for Video recording object
         ext = os.path.splitext(save_path)[1].lower()
         if ext == ".avi":
@@ -387,12 +407,29 @@ class CameraControlView(gb.FrameWidget):
         images = []
         print("Done")
 
+        #reanable the buttons in the gui
+        self.enable_controls()
 
+    #fuunction to change the camera index when the user press the button
     def next_camera(self):
-        self.camera_view.next_camera()
-        if self.camera_view.do_record:
-            self.record.set(bg="gray")
-            self.record_details.set(text='Recording finished')
+        self.camera+=1 #we add 1 to the index of camera
+        if self.camera>(len(self.camera_list)-1): #if the index becomes bigger than the number of cameras, we loop back to the first one
+            self.camera=0
+        #print the name of the camera    
+        print(self.camera_list[self.camera])
+
+
+    #create a function to desactivate buttons when running either the preview or the recording
+    def disable_controls(self):
+        self.play.set(state="disabled") #user should not launch another preview
+        self.record.set(state="disabled") #user should not launch another recording
+        self.change.set(state="disabled") #user should not try to change the camera source when a preview or recording is running
+
+    #create a function to reactivate buttons once the preview or the recording process finished
+    def enable_controls(self):
+        self.play.set(state="normal") #reactivate the preview button
+        self.record.set(state="normal") #reactivate the recording button
+        self.change.set(state="normal") #reactivate the changing camera source button
 
 
 class CameraView(gb.FrameWidget):
