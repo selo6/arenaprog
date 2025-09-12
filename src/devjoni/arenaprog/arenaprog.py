@@ -138,8 +138,26 @@ class StimView(gb.FrameWidget):
 
         self.active_type = 0
 
+        
+
 
     def generate_cards(self):
+
+        #in case a the chronometer is already running, we stop it
+        self.parent.stop_clock()
+
+        #when we generate a new type of stimulus, we remove the old type that was open (otherwise it stays on behind the new one). 
+        if self.preview.current_card or self.view[1].current_card:
+            try:
+                self.preview.current_card.grid_remove()
+            except:
+                pass
+
+            try:
+                self.view[1].current_card.grid_remove()
+            except:
+                pass
+
         seed = random.random()
 
         self.preview.card_methods[self.active_type](seed=seed)
@@ -148,6 +166,9 @@ class StimView(gb.FrameWidget):
         if self.view:
             self.view[1].card_methods[self.active_type](seed=seed)
             self.view[1].next_card(do_callback=False)
+        
+        #start the chronometer
+        self.parent.start_clock()
 
     
     def save_card(self):
@@ -242,7 +263,7 @@ class CameraControlView(gb.FrameWidget):
 
 
     def play(self):
-        '''function that launch the preview_video_cv2() function below in a new thread to keep the main gui responsive'''
+        '''function that launches the preview_video_cv2() function below in a new thread to keep the main gui responsive'''
 
         # Clear any leftover stop signals
         while not self.q_video.empty():
@@ -284,7 +305,7 @@ class CameraControlView(gb.FrameWidget):
     def preview_video_cv2(self):
 
         cv2.namedWindow("preview")
-        vc = cv2.VideoCapture(self.camera)
+        vc = cv2.VideoCapture(self.camera) 
 
         if vc.isOpened(): # try to get the first frame
             rval, frame = vc.read()
@@ -574,8 +595,6 @@ class TotalView(gb.FrameWidget):
     def __init__(self, parent, do_camera=True):
         super().__init__(parent)
 
-
-
         # Camera side
 
         if do_camera:
@@ -631,9 +650,10 @@ class TotalView(gb.FrameWidget):
         if self.clock_running:
             self.after(100, self.update_clock)
         else:
-            self.stim.preview.current_card.grid_remove()
+            self.stim.preview.current_card.grid_remove() #this line is responsible for presenting the wrong stimulus on preview after triggering the reward (reset of the stimulus?)
             if self.stim.view:
-                self.stim.view[1].current_card.grid_remove()
+                self.stim.view[1].current_card.grid_remove() #same but for the main stimulus display
+            
 
     def stop_clock(self):
         self.clock_running = False
