@@ -3,11 +3,6 @@ import cv2
 from .video_capture_openCV import VideoCaptureAsync
 import time
 
-#get the module to run multiprocessing
-#from multiprocessing import Process
-import threading
-from queue import Queue, Empty
-
 def record_video_cv2(duration=None, vid_w = 1280, vid_h = 800, preview_rate=10,save_path='video.avi',save_codec='DIVX'):
     '''Used to record videos using the opencv package.
     Optional parameters:
@@ -18,15 +13,7 @@ def record_video_cv2(duration=None, vid_w = 1280, vid_h = 800, preview_rate=10,s
                     By default every 10 frames will be displayed. A lower number will increase the strain on the system and may slowe down the recording rate.
     save_path --> character string of the full path of the video to be saved (folder path + video name + extention, usually .avi)
     save_codec --> codec to use to save the video. 'XVID' and 'DIVX' works. Check to see what else is available. Please change the file expension accordingly.'''
-    
-    #create a queue so we can pass stoping messages to the video preview and recording threads.
-    tracking_q = Queue()
-
-    # In case the tracking queue still exist, clear any leftover stop signals
-    while not tracking_q.empty():
-        tracking_q.get_nowait()
-    
-    #close the opencv windows that were already open (like if we made a previsualisation one) before to start recording
+    #clode the opencv windows that were already open (like if we made a previsualisation one) before to start recording
     cv2.destroyAllWindows()
 
     #Intiate Video Capture object
@@ -67,10 +54,6 @@ def record_video_cv2(duration=None, vid_w = 1280, vid_h = 800, preview_rate=10,s
             frame = cv2.resize(new_frame,(1280,800))
             frame = cv2.flip(frame,180)
             cv2.imshow('frame', frame)
-
-            #Place the frame in the tracking queue to be analysed by the movement tracker
-            tracking_q.put(frame)
-
         if cv2.waitKey(1) & 0xFF == ord('q'): #press q to stop the process
             break
         if cv2.getWindowProperty('preview',cv2.WND_PROP_VISIBLE) < 1: #or check that the display window has been manually closed by the user

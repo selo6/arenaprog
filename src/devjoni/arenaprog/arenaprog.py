@@ -6,6 +6,7 @@ import atexit
 import platform
 import random
 import os
+import numpy as np
 
 import devjoni.guibase as gb
 from devjoni.hosguibase.video import VideoWidget
@@ -260,6 +261,10 @@ class CameraControlView(gb.FrameWidget):
         
         #create a queue so we can pass stoping messages to the video preview and recording threads.
         self.q_video = Queue()
+        self.stop_mov_detec_q = Queue() #same to stop the movement detector thread
+
+        #create a queue so we can pass images from the cam to the movement detector
+        self.mov_detec_q = Queue()
 
 
     def play(self):
@@ -346,7 +351,16 @@ class CameraControlView(gb.FrameWidget):
                         By default every 10 frames will be displayed. A lower number will increase the strain on the system and may slowe down the recording rate.
         save_path --> character string of the full path of the video to be saved (folder path + video name + extention, usually .avi)
         save_codec --> codec to use to save the video. 'XVID' and 'DIVX' works. Check to see what else is available. Please change the file expension accordingly.'''
-        #clode the opencv windows that were already open (like if we made a previsualisation one) before to start recording
+        
+        #clear the queue of images for movement detection
+        while not self.mov_detec_q.empty():
+            self.mov_detec_q.get_nowait()
+
+        #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
+        thrd_mov_detect = threading.Thread(target=self.movement_detect, daemon=True)
+        thrd_mov_detect.start()
+
+        #close the opencv windows that were already open (like if we made a previsualisation one) before to start recording
         cv2.destroyAllWindows()
 
         #Intiate Video Capture object
@@ -393,6 +407,7 @@ class CameraControlView(gb.FrameWidget):
                 # Uncomment the following line if you have a specific display window in mind. 
                 frame = cv2.resize(new_frame,(1280,800))
                 frame = cv2.flip(frame,180)
+                self.mov_detec_q.put(frame) #put the frame in the queue for movement detection analysis
                 cv2.imshow('frame', frame)
             if cv2.waitKey(1) & 0xFF == ord('q'): #press q to stop the process
                 break
@@ -412,6 +427,10 @@ class CameraControlView(gb.FrameWidget):
         # the duration gives the frames per second which is used to record the video later.
         time_total=time.time() - time_start
         fps = frames/time_total
+
+        #pass a stop signal to the movement detector loop, through its dedicated queue
+        self.stop_mov_detec_q.put("stop")
+
         print(frames)
         print(len(images)) 
         print(time_total)
@@ -451,6 +470,47 @@ class CameraControlView(gb.FrameWidget):
         self.play.set(state="normal") #reactivate the preview button
         self.record.set(state="normal") #reactivate the recording button
         self.change.set(state="normal") #reactivate the changing camera source button
+
+
+    #function to crop and detect movements in images sent from the recording loop, based on changes in gray levels
+    def movement_detect(self):
+
+        #set the mean of gray of previous frame as 0 so teh loop doesn't stop at the biginning (when we set a threshold)
+        last_mean = 0
+
+        #create a frame counter to exclude the first one from triggering the response
+        analysed_frame=0
+
+        while(True):
+
+            try:
+                analyse_frame=self.mov_detec_q.get_nowait() #check if there is a frame available in the queue
+                gray = cv2.cvtColor(analyse_frame, cv2.COLOR_BGR2GRAY) #convert image to grey levels
+                gray_diff_result = np.abs(np.mean(gray) - last_mean) #compute the difference of the mean levels of grey between this frame and the previous one
+                print(gray_diff_result) #print the difference (we can set a threshold here, instead to trigger an action)
+                last_mean= np.mean(gray) #change the value of the grey of the previous frame to the new one
+
+                if gray_diff_result>3 and analysed_frame>1: #if the difference between the two frames reach a threshold, we send the signal to stop the recording
+                    self.q_video.put("stop")    
+
+                #add 1 to the frame counter
+                analysed_frame+=1
+
+            except: #if the queue was empty, pass
+                pass
+                #print("no frame yet")
+
+            #to stop the loop, user can push the q key
+            if (cv2.waitKey(1) & 0xFF == ord('q')):
+                break
+
+            # Or check if stop was requested by clicking the stop button
+            try:
+                msg_mov = self.stop_mov_detec_q.get_nowait()
+                if msg_mov == "stop":
+                    break
+            except Empty:
+                pass
 
 
 class CameraView(gb.FrameWidget):
