@@ -171,6 +171,27 @@ class StimView(gb.FrameWidget):
         #start the chronometer
         self.parent.start_clock()
 
+
+    #definition to create place the calibration display in the opened stimulus window
+    def generate_calib(self,relat_size=0.1, XX=100, YY=100):
+
+        #when we generate a new type of stimulus, we remove the old type that was open (otherwise it stays on behind the new one). 
+        if self.preview.current_card or self.view[1].current_card:
+            try:
+                self.preview.current_card.grid_remove()
+            except:
+                pass
+
+            try:
+                self.view[1].current_card.grid_remove()
+            except:
+                pass
+
+    
+        if self.view:
+            self.view[1].create_calibcross_cards(relat_size=relat_size, XX=XX, YY=YY)
+            self.view[1].next_card(do_callback=False)
+        
     
     def save_card(self):
         pass
@@ -249,6 +270,9 @@ class CameraControlView(gb.FrameWidget):
         self.fps.set_input('10')
         self.fps.grid(row=1,column=3)
 
+        self.calibration = gb.ButtonWidget(self, text='Calibration', command=self.calibration)
+        self.calibration.grid(row=2, column=0)
+
         #get the list of active camras
         self.camera_list=enumerate_cameras(cv2.CAP_MSMF)
 
@@ -265,6 +289,15 @@ class CameraControlView(gb.FrameWidget):
 
         #create a queue so we can pass images from the cam to the movement detector
         self.mov_detec_q = Queue()
+
+        #create a list to store the calibration coordinates
+        self.calib_coord=[]
+
+        #instenciate the StimView class that is used to generate stimuli (see the class above)
+        stim = StimView(self)
+        self.stim=stim
+
+        
 
 
     def play(self):
@@ -365,6 +398,7 @@ class CameraControlView(gb.FrameWidget):
 
         #Intiate Video Capture object
         capture = VideoCaptureAsync(src=self.camera, width=vid_w, height=vid_h)
+
         #Intiate codec for Video recording object
         ext = os.path.splitext(save_path)[1].lower()
         if ext == ".avi":
@@ -472,6 +506,44 @@ class CameraControlView(gb.FrameWidget):
         self.change.set(state="normal") #reactivate the changing camera source button
 
 
+    def calibration(self): 
+
+        #need a part to generate two cards with a cross on each to get their oordinates on camera
+        #XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        #open the stimulus window ("stim" is a call of the StimView class that is used to generate stimuli, see above)
+        self.stim.open_window()
+
+        #create the calibration display in the opened window
+        self.stim.generate_calib(relat_size=0.2, XX=200, YY=100)
+
+        #close the opencv windows that were already open (like if we made a previsualisation one) before to start capturing an image
+        cv2.destroyAllWindows()
+
+        cv2.namedWindow("calib_1")
+        vc = cv2.VideoCapture(self.camera) 
+
+        if vc.isOpened(): # try to get the first frame
+            rval, calib_1 = vc.read()
+        else:
+            rval = False
+
+        #if we've got an image, show it
+        if rval and vc.isOpened():
+            cv2.imshow("calib_1", calib_1)
+
+        # bind the callback function to window
+        cv2.setMouseCallback('calib_1', self.point_capture)
+        
+        
+    #definition to save the coordinates on the video display where the user have clicked during the calibration
+    def point_capture(self,event, x, y, flags,params):
+        if event == 1:
+            self.calib_coord.append(x)
+            self.calib_coord.append(y)
+            
+            
+
+
     #function to crop and detect movements in images sent from the recording loop, based on changes in gray levels
     def movement_detect(self):
 
@@ -491,7 +563,7 @@ class CameraControlView(gb.FrameWidget):
                 last_mean= np.mean(gray) #change the value of the grey of the previous frame to the new one
 
                 if gray_diff_result>3 and analysed_frame>1: #if the difference between the two frames reach a threshold, we send the signal to stop the recording
-                    self.q_video.put("stop")    
+                    self.q_video.put("stop")  ###### This is where we want to trigger rewards etc ###########  
 
                 #add 1 to the frame counter
                 analysed_frame+=1
@@ -512,7 +584,7 @@ class CameraControlView(gb.FrameWidget):
             except Empty:
                 pass
 
-
+#!!!! not sure if this is still useful, maybe I bypassed it in the class above? !!!!
 class CameraView(gb.FrameWidget):
     '''Camera view using the opencv cameralib.
     '''
@@ -710,9 +782,9 @@ class TotalView(gb.FrameWidget):
         if self.clock_running:
             self.after(100, self.update_clock)
         else:
-            self.stim.preview.current_card.grid_remove() #this line is responsible for presenting the wrong stimulus on preview after triggering the reward (reset of the stimulus?)
+            self.stim.preview.current_card.grid_remove()
             if self.stim.view:
-                self.stim.view[1].current_card.grid_remove() #same but for the main stimulus display
+                self.stim.view[1].current_card.grid_remove()
             
 
     def stop_clock(self):
@@ -738,7 +810,7 @@ def main():
 
 
     window.run()
-    
+
 
 if __name__ == "__main__":
     main()

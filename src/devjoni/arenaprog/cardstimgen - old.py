@@ -204,35 +204,6 @@ def create_multipie_images(N, M, right='1010', width=CARD_WIDTH, height=CARD_HEI
     return images
 
 
-def create_calibcross_images(r_rel, xx, yy, width=CARD_WIDTH, height=CARD_HEIGHT):
-    '''
-    definition used to create crosses at specific coordinates for the user to click on during the camera/mask calibration.
-    xx and yy are the coordinate of teh centre of the cross
-    '''
-    #generate the image
-    image = Image.new('RGB', (width, height))
-    ctx = ImageDraw.Draw(image)
-
-    #compute the length of the branches of the cross
-    rel_length=int(r_rel*min(width, height)/2)
-
-    #compute the coordinates of the line forming the horizontal branches
-    hx0=xx-rel_length
-    hy0=yy
-    hx1=xx+rel_length
-    hy1=yy
-
-    #compute the coordinates of the line forming the vertical branches
-    vx0=xx
-    vy0=yy-rel_length
-    vx1=xx
-    vy1=yy+rel_length
-
-    #plot the lines to make the cross
-    ctx.line((hx0,hy0,hx1,hy1), fill=(255,255,255))
-    ctx.line((vx0,vy0,vx1,vy1), fill=(255,255,255))
-
-    return image
 
 
 class CardWidget(gb.FrameWidget):
@@ -389,20 +360,6 @@ class CardStimWidget(gb.FrameWidget):
         images = create_stripe_images(self.width,self.height,seed)
         for image in images:
             self.create_card(image)
-
-        self.current_card = None
-
-    #create the definition to generate the card of teh calibration crosses
-    def create_calibcross_cards(self,relat_size=0.1, XX=100, YY=100):
-        '''to create calibration cards
-        relat_size is to change the size relative to the size of the card (between 0 and 1)
-        XX and YY are the coordinate of the centre of the cross'''
-
-        self.clear_cards()
-
-        calib_image = create_calibcross_images(r_rel=relat_size, xx=XX, yy=YY, width=self.width, height=self.height)
-        
-        self.create_card(calib_image)
 
         self.current_card = None
 
