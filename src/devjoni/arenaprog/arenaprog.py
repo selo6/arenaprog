@@ -29,6 +29,8 @@ from queue import Queue, Empty
 
 import time
 
+from skimage.metrics import structural_similarity
+
 from .version import __version__
 
 IMAGE_UPDATE_INTERVAL = 10 # ms
@@ -139,8 +141,6 @@ class StimView(gb.FrameWidget):
 
         self.active_type = 0
 
-        
-
 
     def generate_cards(self):
 
@@ -162,11 +162,11 @@ class StimView(gb.FrameWidget):
         seed = random.random()
 
         self.preview.card_methods[self.active_type](seed=seed)
-        self.preview.next_card(do_callback=False)
+        #self.preview.next_card(do_callback=False) #muted as we want to be able to do the heavy lifting of generating cards long before to display the first one
     
         if self.view:
             self.view[1].card_methods[self.active_type](seed=seed)
-            self.view[1].next_card(do_callback=False)
+            #self.view[1].next_card(do_callback=False) #muted as we want to be able to do the heavy lifting of generating cards long before to display the first one
         
         #start the chronometer
         self.parent.start_clock()
@@ -196,6 +196,7 @@ class StimView(gb.FrameWidget):
     def save_card(self):
         pass
 
+
     def change_type(self):
         i = self.active_type
         i+=1
@@ -207,6 +208,7 @@ class StimView(gb.FrameWidget):
         self.active_type = i
         self.b_change.set(text=f"Change type ({i+1}/{N})")
 
+
     def open_window(self):
         
         if self.view is not None:
@@ -216,7 +218,7 @@ class StimView(gb.FrameWidget):
             self.preview.next_card_callback = None
 
         root = self.get_root()    
-        toplevel = gb.MainWindow(parent=root,fullscreen=False,window_geom="800x600+100+10")
+        toplevel = gb.MainWindow(parent=root,fullscreen=False,window_geom="400x400+100+10")
         
         view = CardStimWidget(toplevel, 400, 400, make_nextbutton=False)
         #view.b_next.destroy()
@@ -270,8 +272,14 @@ class CameraControlView(gb.FrameWidget):
         self.fps.set_input('10')
         self.fps.grid(row=1,column=3)
 
-        self.calibration = gb.ButtonWidget(self, text='Calibration', command=self.calibration)
+        self.calibration = gb.ButtonWidget(self, text='Manual Calibration', command=self.calibration)
         self.calibration.grid(row=2, column=0)
+
+        self.auto_calibration = gb.ButtonWidget(self, text='Auto Calibration', command=self.auto_calibration)
+        self.auto_calibration.grid(row=2, column=1)
+
+        self.create_calib_mask = gb.ButtonWidget(self, text='Create Mask', command=self.create_calib_mask)
+        self.create_calib_mask.grid(row=2, column=2)
 
         #get the list of active camras
         self.camera_list=enumerate_cameras(cv2.CAP_MSMF)
@@ -298,7 +306,6 @@ class CameraControlView(gb.FrameWidget):
         self.stim=stim
 
         
-
 
     def play(self):
         '''function that launches the preview_video_cv2() function below in a new thread to keep the main gui responsive'''
@@ -507,9 +514,9 @@ class CameraControlView(gb.FrameWidget):
 
 
     def calibration(self): 
-
-        #need a part to generate two cards with a cross on each to get their oordinates on camera
-        #XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        '''This may be used to obtain the pixel location of points on the camera view to match the coordinate system of the projector and the camera.
+        At least three points may be necessary (3 for getAffineTransform or 4 for getPerspectiveTransform).
+        This would be used to get the stimulus image and make it a mask over the camera view to detect movement only on the area of the stimulus'''
         
         #set the coordinates for the first calibartion cross
         calib1_X=200
@@ -565,7 +572,7 @@ class CameraControlView(gb.FrameWidget):
         #second calibration cross
 
         #set the coordinates for the second calibartion cross
-        calib2_X=200
+        calib2_X=100
         calib2_Y=200
         
         #store them in a list
@@ -603,6 +610,49 @@ class CameraControlView(gb.FrameWidget):
         else:
             print("Calibration not Completed")
 
+
+        #######
+        #third calibration cross
+
+        #set the coordinates for the third calibartion cross
+        calib3_X=200
+        calib3_Y=300
+        
+        #store them in a list
+        self.calib_display_coords.append(calib3_X)
+        self.calib_display_coords.append(calib3_Y)
+
+        #create the calibration display in the opened window
+        self.stim.generate_calib(relat_size=0.2, XX=calib3_X, YY=calib3_Y)
+
+        #force tkinter to wait for the window to be opened and the cross to be drawn (otherwise the video window happens before, the loop waiting for the click starts and the cross is never displayed)
+        self.stim.view[0].tk.update_idletasks()
+        self.stim.view[0].tk.update()
+
+        #capture another image from the camera
+        if vc.isOpened(): # try to get the first frame
+            rval, calib_3 = vc.read()
+        else:
+            rval = False
+
+        #if we've got an image, show it
+        if rval and vc.isOpened():
+            cv2.imshow("calib", calib_3)
+
+        # reset coords so we know when user has clicked
+        self.clicked_point = None
+
+        # Wait until user clicks and that, thus, clicked_point is not empty
+        while self.clicked_point is None:
+            if cv2.waitKey(1) & 0xFF == ord('q'): #we also plan for closing the loop with pressing q
+                break
+        
+        # save clicked coords
+        if self.clicked_point is not None:
+            self.calib_coord.extend(self.clicked_point)
+        else:
+            print("Calibration not Completed")
+
         #close the camera window
         cv2.destroyAllWindows()
 
@@ -625,6 +675,8 @@ class CameraControlView(gb.FrameWidget):
         #set the mean of gray of previous frame as 0 so teh loop doesn't stop at the biginning (when we set a threshold)
         last_mean = 0
 
+        masking=None
+
         #create a frame counter to exclude the first one from triggering the response
         analysed_frame=0
 
@@ -633,9 +685,17 @@ class CameraControlView(gb.FrameWidget):
             try:
                 analyse_frame=self.mov_detec_q.get_nowait() #check if there is a frame available in the queue
                 gray = cv2.cvtColor(analyse_frame, cv2.COLOR_BGR2GRAY) #convert image to grey levels
-                gray_diff_result = np.abs(np.mean(gray) - last_mean) #compute the difference of the mean levels of grey between this frame and the previous one
-                print(gray_diff_result) #print the difference (we can set a threshold here, instead to trigger an action)
-                last_mean= np.mean(gray) #change the value of the grey of the previous frame to the new one
+
+                if masking is None:
+                    masking=self.create_calib_mask(gray)
+                    cv2.imshow("masking", masking)
+                    continue
+
+                # Compute mean intensity inside the masked region
+                roi_mean = cv2.mean(gray, mask=masking)[0] #compute the grey level in the area not masked
+                gray_diff_result = abs(roi_mean - last_mean) #compute the difference of the mean levels of grey between this frame and the previous one
+                #print(gray_diff_result) #print the difference (we can set a threshold here, instead to trigger an action)
+                last_mean = roi_mean #change the value of the grey of the previous frame to the new one
 
                 if gray_diff_result>3 and analysed_frame>1: #if the difference between the two frames reach a threshold, we send the signal to stop the recording
                     self.q_video.put("stop")  ###### This is where we want to trigger rewards etc ###########  
@@ -658,6 +718,107 @@ class CameraControlView(gb.FrameWidget):
                     break
             except Empty:
                 pass
+    
+
+
+    def auto_calibration(self):
+        '''capture the image of the arena with the stimulus display window open but no stimulus displayed 
+        to use as comparison with the images collected once stimuli are displayed to auto detect the location of the stimuli'''
+
+        #open the stimulus window ("stim" is a call of the StimView class that is used to generate stimuli, see above)
+        self.stim.open_window()
+
+        #force tkinter to wait for the window to be opened before to move on to take the image from the camera
+        self.stim.view[0].tk.update_idletasks()
+        self.stim.view[0].tk.update()
+
+        #close the opencv windows that were already open (like if we made a previsualisation one) before to start capturing an image
+        cv2.destroyAllWindows()
+
+        #open a new video window and get the input from the camera
+        #cv2.namedWindow("auto calibration image")
+        vc = cv2.VideoCapture(self.camera) 
+
+        if vc.isOpened(): # try to get the first frame
+            rval, auto_calib_image = vc.read()
+        else:
+            rval = False
+
+        #if we've got an image, make it the same dimension and rotation than the recording one, make it gray and show it
+        if rval and vc.isOpened():
+            auto_calib_image_temp=cv2.resize(auto_calib_image,(1280,800))
+            auto_calib_image_temp2 = cv2.flip(auto_calib_image_temp,180)
+            self.auto_calib_image_GRAY=cv2.cvtColor(auto_calib_image_temp2, cv2.COLOR_BGR2GRAY)
+            
+            cv2.imshow("auto calibration image", self.auto_calib_image_GRAY)
+
+    
+    def create_calib_mask(self,image=None):
+        '''depening on the method chosen, get a mask to place over the movement detection images 
+        for the detection of the flie entering the stimulus location'''
+
+        #if no image provided, we get our own from the camera
+        if image is None:
+            #close the opencv windows that were already open (like if we made a previsualisation one) before to start capturing an image
+            cv2.destroyAllWindows()
+
+            #open a new video window and get the input from the camera
+            cv2.namedWindow("calib")
+            vc = cv2.VideoCapture(self.camera) 
+
+            if vc.isOpened(): # try to get the first frame
+                rval, stimu_for_mask_image = vc.read()
+            else:
+                rval = False
+
+            #if we've got an image, make it the same dimension and rotation than the recording one, make it gray and show it
+            if rval and vc.isOpened():
+                stimu_for_mask_image_temp=cv2.resize(stimu_for_mask_image,(1280,800))
+                stimu_for_mask_image_temp2 = cv2.flip(stimu_for_mask_image_temp,180)
+                self.stimu_for_mask_image_GRAY=cv2.cvtColor(stimu_for_mask_image_temp2, cv2.COLOR_BGR2GRAY)
+                
+                #cv2.imshow("auto calibration image", auto_calib_image_GRAY)
+        else:
+            self.stimu_for_mask_image_GRAY=image
+
+        # Compute SSIM between the two images
+        (score, diff) = structural_similarity(self.auto_calib_image_GRAY, self.stimu_for_mask_image_GRAY, full=True)
+        print("Image Similarity: {:.4f}%".format(score * 100))
+
+        # The diff image contains the actual image differences between the two images
+        # and is represented as a floating point data type in the range [0,1] 
+        # so we must convert the array to 8-bit unsigned integers in the range
+        # [0,255] before we can use it with OpenCV
+        diff = (diff * 255).astype("uint8")
+        diff_box = cv2.merge([diff, diff, diff])
+
+        # Threshold the difference image, followed by finding contours to
+        # obtain the regions of the two input images that differ
+        thresh = cv2.threshold(diff, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
+        contours = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours = contours[0] if len(contours) == 2 else contours[1]
+
+        mask = np.zeros(self.auto_calib_image_GRAY.shape, dtype='uint8')
+
+        for c in contours:
+            area = cv2.contourArea(c)
+            if area > 100:
+                #x,y,w,h = cv2.boundingRect(c)
+                #cv2.rectangle(self.auto_calib_image_GRAY, (x, y), (x + w, y + h), (36,255,12), 2)
+                #cv2.rectangle(self.stimu_for_mask_image_GRAY, (x, y), (x + w, y + h), (36,255,12), 2)
+                #cv2.rectangle(diff_box, (x, y), (x + w, y + h), (36,255,12), 2)
+                cv2.drawContours(mask, [c], 0, (255,255,255), -1)
+
+        #cv2.imshow('before', self.auto_calib_image_GRAY)
+        #cv2.imshow('after', self.stimu_for_mask_image_GRAY)
+        #cv2.imshow('diff', diff)
+        #cv2.imshow('diff_box', diff_box)
+        #cv2.imshow('mask', mask)
+
+        return(mask)
+
+
+        
 
 
 
