@@ -248,17 +248,17 @@ class CameraControlView(gb.FrameWidget):
 
         self.camera_view = camera_view
 
-        self.play = gb.ButtonWidget(self, text='Play', command=self.play)
-        self.play.grid(row=0, column=0)
+        self.play_btn = gb.ButtonWidget(self, text='Play', command=self.play)
+        self.play_btn.grid(row=0, column=0)
 
-        self.stop = gb.ButtonWidget(self, text='Stop', command=self.stop)
-        self.stop.grid(row=0, column=1)
+        self.stop_btn = gb.ButtonWidget(self, text='Stop', command=self.stop)
+        self.stop_btn.grid(row=0, column=1)
         
-        self.change = gb.ButtonWidget(self, text='Next camera', command=self.next_camera)
-        self.change.grid(row=0, column=2)
+        self.change_btn = gb.ButtonWidget(self, text='Next camera', command=self.next_camera)
+        self.change_btn.grid(row=0, column=2)
    
-        self.record = gb.ButtonWidget(self, text='Record', command=self.record)
-        self.record.grid(row=0, column=3)
+        self.record_btn = gb.ButtonWidget(self, text='Record', command=self.record)
+        self.record_btn.grid(row=0, column=3)
         
         self.record_details = gb.TextWidget(
                 self, text='')
@@ -272,14 +272,14 @@ class CameraControlView(gb.FrameWidget):
         self.fps.set_input('10')
         self.fps.grid(row=1,column=3)
 
-        self.calibration = gb.ButtonWidget(self, text='Manual Calibration', command=self.calibration)
-        self.calibration.grid(row=2, column=0)
+        self.calibration_btn = gb.ButtonWidget(self, text='Manual Calibration', command=self.calibration)
+        self.calibration_btn.grid(row=2, column=0)
 
-        self.auto_calibration = gb.ButtonWidget(self, text='Auto Calibration', command=self.auto_calibration)
-        self.auto_calibration.grid(row=2, column=1)
+        self.auto_calibration_btn = gb.ButtonWidget(self, text='Auto Calibration', command=self.auto_calibration)
+        self.auto_calibration_btn.grid(row=2, column=1)
 
-        self.create_calib_mask = gb.ButtonWidget(self, text='Create Mask', command=self.create_calib_mask)
-        self.create_calib_mask.grid(row=2, column=2)
+        self.create_calib_mask_btn = gb.ButtonWidget(self, text='Create Mask', command=self.create_calib_mask)
+        self.create_calib_mask_btn.grid(row=2, column=2)
 
         #get the list of active camras
         self.camera_list=enumerate_cameras(cv2.CAP_MSMF)
@@ -392,6 +392,9 @@ class CameraControlView(gb.FrameWidget):
         save_path --> character string of the full path of the video to be saved (folder path + video name + extention, usually .avi)
         save_codec --> codec to use to save the video. 'XVID' and 'DIVX' works. Check to see what else is available. Please change the file expension accordingly.'''
         
+        #close the opencv windows that were already open (like if we made a previsualisation one) before to start recording
+        cv2.destroyAllWindows()
+
         #clear the queue of images for movement detection
         while not self.mov_detec_q.empty():
             self.mov_detec_q.get_nowait()
@@ -399,9 +402,6 @@ class CameraControlView(gb.FrameWidget):
         #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
         thrd_mov_detect = threading.Thread(target=self.movement_detect, daemon=True)
         thrd_mov_detect.start()
-
-        #close the opencv windows that were already open (like if we made a previsualisation one) before to start recording
-        cv2.destroyAllWindows()
 
         #Intiate Video Capture object
         capture = VideoCaptureAsync(src=self.camera, width=vid_w, height=vid_h)
@@ -502,15 +502,15 @@ class CameraControlView(gb.FrameWidget):
 
     #create a function to desactivate buttons when running either the preview or the recording
     def disable_controls(self):
-        self.play.set(state="disabled") #user should not launch another preview
-        self.record.set(state="disabled") #user should not launch another recording
-        self.change.set(state="disabled") #user should not try to change the camera source when a preview or recording is running
+        self.play_btn.set(state="disabled") #user should not launch another preview
+        self.record_btn.set(state="disabled") #user should not launch another recording
+        self.change_btn.set(state="disabled") #user should not try to change the camera source when a preview or recording is running
 
     #create a function to reactivate buttons once the preview or the recording process finished
     def enable_controls(self):
-        self.play.set(state="normal") #reactivate the preview button
-        self.record.set(state="normal") #reactivate the recording button
-        self.change.set(state="normal") #reactivate the changing camera source button
+        self.play_btn.set(state="normal") #reactivate the preview button
+        self.record_btn.set(state="normal") #reactivate the recording button
+        self.change_btn.set(state="normal") #reactivate the changing camera source button
 
 
     def calibration(self): 
@@ -685,20 +685,28 @@ class CameraControlView(gb.FrameWidget):
             try:
                 analyse_frame=self.mov_detec_q.get_nowait() #check if there is a frame available in the queue
                 gray = cv2.cvtColor(analyse_frame, cv2.COLOR_BGR2GRAY) #convert image to grey levels
-
+                
                 if masking is None:
                     masking=self.create_calib_mask(gray)
-                    cv2.imshow("masking", masking)
+                    #cv2.imshow("masking", masking)
                     continue
 
                 # Compute mean intensity inside the masked region
                 roi_mean = cv2.mean(gray, mask=masking)[0] #compute the grey level in the area not masked
                 gray_diff_result = abs(roi_mean - last_mean) #compute the difference of the mean levels of grey between this frame and the previous one
-                #print(gray_diff_result) #print the difference (we can set a threshold here, instead to trigger an action)
+                print(gray_diff_result) #print the difference (we can set a threshold here, instead to trigger an action)
                 last_mean = roi_mean #change the value of the grey of the previous frame to the new one
+                
+                #to show the image with the mask
+                #masked_frame = cv2.bitwise_and(gray, gray, mask=masking)
+                #cv2.imshow("Masked Frame", masked_frame)
 
                 if gray_diff_result>3 and analysed_frame>1: #if the difference between the two frames reach a threshold, we send the signal to stop the recording
-                    self.q_video.put("stop")  ###### This is where we want to trigger rewards etc ###########  
+                    self.q_video.put("stop")  ###### This is where we want to trigger rewards etc ########### 
+
+                    #after doing things we need, we close the camera windows and stop the loop
+                    cv2.destroyAllWindows()
+                    break 
 
                 #add 1 to the frame counter
                 analysed_frame+=1
@@ -706,6 +714,7 @@ class CameraControlView(gb.FrameWidget):
             except: #if the queue was empty, pass
                 pass
                 #print("no frame yet")
+                
 
             #to stop the loop, user can push the q key
             if (cv2.waitKey(1) & 0xFF == ord('q')):
@@ -763,7 +772,7 @@ class CameraControlView(gb.FrameWidget):
             cv2.destroyAllWindows()
 
             #open a new video window and get the input from the camera
-            cv2.namedWindow("calib")
+            #cv2.namedWindow("calib")
             vc = cv2.VideoCapture(self.camera) 
 
             if vc.isOpened(): # try to get the first frame
@@ -780,42 +789,71 @@ class CameraControlView(gb.FrameWidget):
                 #cv2.imshow("auto calibration image", auto_calib_image_GRAY)
         else:
             self.stimu_for_mask_image_GRAY=image
+        
+        # --- Absolute difference with background ---
+        diff = cv2.absdiff(self.auto_calib_image_GRAY, self.stimu_for_mask_image_GRAY)
 
-        # Compute SSIM between the two images
-        (score, diff) = structural_similarity(self.auto_calib_image_GRAY, self.stimu_for_mask_image_GRAY, full=True)
-        print("Image Similarity: {:.4f}%".format(score * 100))
+        # --- Threshold to extract changed pixels ---
+        _, mask = cv2.threshold(diff, 100, 255, cv2.THRESH_BINARY)
 
-        # The diff image contains the actual image differences between the two images
-        # and is represented as a floating point data type in the range [0,1] 
-        # so we must convert the array to 8-bit unsigned integers in the range
-        # [0,255] before we can use it with OpenCV
-        diff = (diff * 255).astype("uint8")
-        diff_box = cv2.merge([diff, diff, diff])
+        # --- Clean noise ---
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)   # remove specks
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)  # close small gaps
 
-        # Threshold the difference image, followed by finding contours to
-        # obtain the regions of the two input images that differ
-        thresh = cv2.threshold(diff, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
-        contours = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        contours = contours[0] if len(contours) == 2 else contours[1]
-
-        mask = np.zeros(self.auto_calib_image_GRAY.shape, dtype='uint8')
-
+        # --- Optional: keep only large enough regions ---
+        # useful if projector or camera adds random flicker
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        mask_clean = np.zeros_like(mask)
         for c in contours:
-            area = cv2.contourArea(c)
-            if area > 100:
-                #x,y,w,h = cv2.boundingRect(c)
-                #cv2.rectangle(self.auto_calib_image_GRAY, (x, y), (x + w, y + h), (36,255,12), 2)
-                #cv2.rectangle(self.stimu_for_mask_image_GRAY, (x, y), (x + w, y + h), (36,255,12), 2)
-                #cv2.rectangle(diff_box, (x, y), (x + w, y + h), (36,255,12), 2)
-                cv2.drawContours(mask, [c], 0, (255,255,255), -1)
+            if cv2.contourArea(c) > 100:  # keep only "real" stimuli
+                cv2.drawContours(mask_clean, [c], -1, 255, -1)
 
-        #cv2.imshow('before', self.auto_calib_image_GRAY)
-        #cv2.imshow('after', self.stimu_for_mask_image_GRAY)
-        #cv2.imshow('diff', diff)
-        #cv2.imshow('diff_box', diff_box)
-        #cv2.imshow('mask', mask)
+        #cv2.imshow("calib_mask", mask_clean)
+        #print("Mask regions:", len(contours))
 
-        return(mask)
+        return mask_clean
+
+        ###########
+        # different technique (maybe more advanced and more precise) but does not work, yet.
+
+        # # Compute SSIM between the two images
+        # (score, diff) = structural_similarity(self.auto_calib_image_GRAY, self.stimu_for_mask_image_GRAY, full=True)
+        # print("Image Similarity: {:.4f}%".format(score * 100))
+
+        # # The diff image contains the actual image differences between the two images
+        # # and is represented as a floating point data type in the range [0,1] 
+        # # so we must convert the array to 8-bit unsigned integers in the range
+        # # [0,255] before we can use it with OpenCV
+        # diff = (diff * 255).astype("uint8")
+        # diff_box = cv2.merge([diff, diff, diff])
+
+        # # Threshold the difference image, followed by finding contours to
+        # # obtain the regions of the two input images that differ
+        # thresh = cv2.threshold(diff, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
+        # contours = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # contours = contours[0] if len(contours) == 2 else contours[1]
+
+        # mask = np.zeros(self.auto_calib_image_GRAY.shape, dtype='uint8')
+
+        # for c in contours:
+        #     area = cv2.contourArea(c)
+        #     if area > 100:
+        #         #x,y,w,h = cv2.boundingRect(c)
+        #         #cv2.rectangle(self.auto_calib_image_GRAY, (x, y), (x + w, y + h), (36,255,12), 2)
+        #         #cv2.rectangle(self.stimu_for_mask_image_GRAY, (x, y), (x + w, y + h), (36,255,12), 2)
+        #         #cv2.rectangle(diff_box, (x, y), (x + w, y + h), (36,255,12), 2)
+        #         cv2.drawContours(mask, [c], 0, (255,255,255), -1)
+
+        # #cv2.imshow('before', self.auto_calib_image_GRAY)
+        # #cv2.imshow('after', self.stimu_for_mask_image_GRAY)
+        # #cv2.imshow('diff', diff)
+        # #cv2.imshow('diff_box', diff_box)
+        # #cv2.imshow('mask', mask)
+
+        # return(mask)
+
+
 
 
         
