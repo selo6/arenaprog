@@ -118,24 +118,33 @@ class StimView(gb.FrameWidget):
 
         super().__init__(parent)
         
-        self.b_change = gb.ButtonWidget(
-                self, 'Change type',
-                command=self.change_type)
-        self.b_change.grid(row=0, column=0)
+        self.nb_trials_text = gb.TextWidget(self, 'Number of trials:')
+        self.nb_trials_text.grid(row=0, column=0, sticky='WE')
 
-        self.b_generate = gb.ButtonWidget(
-                self, 'Generate cards',
-                command=self.generate_cards)
-        self.b_generate.grid(row=1, column=0)
-        
-        self.preview = CardStimWidget(self, 100, 100)
-        self.preview.grid(row=2, column=0)
-        self.preview.next_card_callback = self.next_card_callback
+        self.nb_trials = gb.EntryWidget(self)
+        self.nb_trials.set_input('20')
+        self.nb_trials.grid(row=0,column=1)
 
         self.b_open = gb.ButtonWidget(
                 self, 'Open in window',
                 command=self.open_window)
-        self.b_open.grid(row=3, column=0)
+        self.b_open.grid(row=1, column=0)
+
+        self.b_change = gb.ButtonWidget(
+                self, 'Change type',
+                command=self.change_type)
+        self.b_change.grid(row=1, column=1)
+
+        self.b_generate = gb.ButtonWidget(
+                self, 'Generate cards',
+                command=self.generate_cards)
+        self.b_generate.grid(row=2, column=0)
+        
+        self.preview = CardStimWidget(self, 100, 100)
+        self.preview.grid(row=2, column=1)
+        self.preview.next_card_callback = self.next_card_callback
+
+
 
         self.view = None
 
@@ -278,21 +287,14 @@ class CameraControlView(gb.FrameWidget):
         self.fps.set_input('10')
         self.fps.grid(row=2,column=1)
 
-        self.nb_trials_text = gb.TextWidget(self, 'Number of trials:')
-        self.nb_trials_text.grid(row=3, column=0, sticky='WE')
-
-        self.nb_trials = gb.EntryWidget(self)
-        self.nb_trials.set_input('20')
-        self.nb_trials.grid(row=3,column=1)
-
         self.calibration_btn = gb.ButtonWidget(self, text='Manual Calibration', command=self.calibration)
-        self.calibration_btn.grid(row=4, column=0)
+        self.calibration_btn.grid(row=3, column=0)
 
         self.auto_calibration_btn = gb.ButtonWidget(self, text='Auto Calibration', command=self.auto_calibration)
-        self.auto_calibration_btn.grid(row=4, column=1)
+        self.auto_calibration_btn.grid(row=3, column=1)
 
         self.create_calib_mask_btn = gb.ButtonWidget(self, text='Create Mask', command=self.create_calib_mask)
-        self.create_calib_mask_btn.grid(row=4, column=2)
+        self.create_calib_mask_btn.grid(row=3, column=2)
 
 
 
