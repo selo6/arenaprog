@@ -128,14 +128,14 @@ class StimView(gb.FrameWidget):
                 command=self.generate_cards)
         self.b_generate.grid(row=1, column=0)
         
+        self.preview = CardStimWidget(self, 100, 100)
+        self.preview.grid(row=2, column=0)
+        self.preview.next_card_callback = self.next_card_callback
+
         self.b_open = gb.ButtonWidget(
                 self, 'Open in window',
                 command=self.open_window)
         self.b_open.grid(row=3, column=0)
-        
-        self.preview = CardStimWidget(self, 100, 100)
-        self.preview.grid(row=2, column=0)
-        self.preview.next_card_callback = self.next_card_callback
 
         self.view = None
 
@@ -263,23 +263,38 @@ class CameraControlView(gb.FrameWidget):
         self.record_details = gb.TextWidget(
                 self, text='')
         self.record_details.grid(row=0, column=4)
+
+        self.video_path_text = gb.TextWidget(self, 'Video saving path:')
+        self.video_path_text.grid(row=1, column=0, sticky='WE')
         
         self.filename = gb.EntryWidget(self)
         self.filename.set_input('video.avi')
-        self.filename.grid(row=1,column=0, columnspan=3)
+        self.filename.grid(row=1,column=1, columnspan=3)
 
+        self.video_fps_text = gb.TextWidget(self, 'Video display rate (1/N):')
+        self.video_fps_text.grid(row=2, column=0, sticky='WE')
+        
         self.fps = gb.EntryWidget(self)
         self.fps.set_input('10')
-        self.fps.grid(row=1,column=3)
+        self.fps.grid(row=2,column=1)
+
+        self.nb_trials_text = gb.TextWidget(self, 'Number of trials:')
+        self.nb_trials_text.grid(row=3, column=0, sticky='WE')
+
+        self.nb_trials = gb.EntryWidget(self)
+        self.nb_trials.set_input('20')
+        self.nb_trials.grid(row=3,column=1)
 
         self.calibration_btn = gb.ButtonWidget(self, text='Manual Calibration', command=self.calibration)
-        self.calibration_btn.grid(row=2, column=0)
+        self.calibration_btn.grid(row=4, column=0)
 
         self.auto_calibration_btn = gb.ButtonWidget(self, text='Auto Calibration', command=self.auto_calibration)
-        self.auto_calibration_btn.grid(row=2, column=1)
+        self.auto_calibration_btn.grid(row=4, column=1)
 
         self.create_calib_mask_btn = gb.ButtonWidget(self, text='Create Mask', command=self.create_calib_mask)
-        self.create_calib_mask_btn.grid(row=2, column=2)
+        self.create_calib_mask_btn.grid(row=4, column=2)
+
+
 
         #get the list of active camras
         self.camera_list=enumerate_cameras(cv2.CAP_MSMF)
@@ -381,7 +396,7 @@ class CameraControlView(gb.FrameWidget):
  
         
     
-    def record_video_cv2(self,duration=0, vid_w = 1280, vid_h = 800, preview_rate=10,save_path='video.avi',save_codec='XVID'):
+    def record_video_cv2(self,duration=0, vid_w = 1280, vid_h = 800, preview_rate=None, save_path=None, save_codec='XVID'):
         '''Used to record videos using the opencv package.
         Optional parameters:
         duration --> (in seconds) if user wants to stop the recording after a given duration. If 0, the recording needs to be stopped manually.
@@ -392,6 +407,18 @@ class CameraControlView(gb.FrameWidget):
         save_path --> character string of the full path of the video to be saved (folder path + video name + extention, usually .avi)
         save_codec --> codec to use to save the video. 'XVID' and 'DIVX' works. Check to see what else is available. Please change the file expension accordingly.'''
         
+        # If no path was provided, get it from the widget
+        if save_path is None:
+            save_path = self.filename.get_input().strip() or "video.avi"
+
+        # If preview rate was provided, get it from the widget
+        if preview_rate is None:
+            try:
+                preview_rate = int(self.fps.get_input().strip())
+            except (ValueError, AttributeError):
+                preview_rate = 10  # fallback if input empty or invalid
+
+
         #close the opencv windows that were already open (like if we made a previsualisation one) before to start recording
         cv2.destroyAllWindows()
 
@@ -853,10 +880,6 @@ class CameraControlView(gb.FrameWidget):
 
         # return(mask)
 
-
-
-
-        
 
 
 
