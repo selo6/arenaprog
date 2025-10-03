@@ -81,7 +81,7 @@ def _draw_pie(image, x0, y0, x1, y1, variation):
 
 
 def create_centraldot_images(r_rel, width=CARD_WIDTH, height=CARD_HEIGHT,
-                             seed=None,nb_card=10):
+                             seed=None):
     '''
     r_rel : float
         Radius relative to the smallest image dimension, width or height
@@ -91,7 +91,7 @@ def create_centraldot_images(r_rel, width=CARD_WIDTH, height=CARD_HEIGHT,
 
     setseed(seed)
     
-    for i in range(nb_card):
+    for i in range(10):
         image = Image.new('RGB', (width, height))
         ctx = ImageDraw.Draw(image)
         
@@ -148,7 +148,7 @@ def setseed(state):
 
 
 
-def create_multipie_images(N, M, right='1010', width=CARD_WIDTH, height=CARD_HEIGHT, seed=None, nb_card=12):
+def create_multipie_images(N, M, right='1010', width=CARD_WIDTH, height=CARD_HEIGHT, seed=None):
     '''Create a image with one pie
 
     Attributes
@@ -172,7 +172,7 @@ def create_multipie_images(N, M, right='1010', width=CARD_WIDTH, height=CARD_HEI
     wpie = min(width, height)/M
 
 
-    for i in range(nb_card):
+    for i in range(12):
         
         right_rot = random.randint(0,M-1)
 
@@ -309,7 +309,7 @@ class CardStimWidget(gb.FrameWidget):
                 print(e)
             index+=1
 
-        if index >= len(self.cards):
+        if index >= len(self.cards)-1:
             index = 0
        
         self.current_card = self.cards[index]
@@ -342,14 +342,14 @@ class CardStimWidget(gb.FrameWidget):
         self.cards = []
 
     
-    def create_centraldot_cards(self, seed=None,nb_card=10):
+    def create_centraldot_cards(self, seed=None):
         '''Create cards that show one central dot
         '''
         self.clear_cards()
 
         images = create_centraldot_images(
                 r_rel=0.1, width=self.width, height=self.height,
-                seed=seed, nb_card=nb_card
+                seed=seed
                 )
 
         for image in images:
@@ -357,33 +357,33 @@ class CardStimWidget(gb.FrameWidget):
         self.current_card = None
 
 
-    def create_onepie_cards(self, N=4, seed=None, nb_card=10):
+    def create_onepie_cards(self, N=4, seed=None):
         '''Change to onepie cards
         '''
         self.clear_cards()
 
         images = create_onepie_images(
                 N, width=self.width, height=self.height,
-                seed=seed,nb_card=nb_card)
+                seed=seed)
         for image in images:
             self.create_card(image)
         self.current_card = None
 
 
-    def create_multipie_cards(self, N=4, M=4, seed=None, nb_card=10):
+    def create_multipie_cards(self, N=4, M=4, seed=None):
 
         self.clear_cards()
 
         images = create_multipie_images(
                 N, M, width=self.width, height=self.height,
-                seed=seed,nb_card=nb_card)
+                seed=seed)
         for image in images:
             self.create_card(image)
 
         self.current_card = None
 
 
-    def create_stripe_cards(self, seed=None, nb_card=10):
+    def create_stripe_cards(self, seed=None):
         self.clear_cards()
 
         images = create_stripe_images(self.width,self.height,seed)
@@ -392,7 +392,7 @@ class CardStimWidget(gb.FrameWidget):
 
         self.current_card = None
 
-    #create the definition to generate the card of the calibration crosses
+    #create the definition to generate the card of teh calibration crosses
     def create_calibcross_cards(self,relat_size=0.1, XX=100, YY=100):
         '''to create calibration cards
         relat_size is to change the size relative to the size of the card (between 0 and 1)

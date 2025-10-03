@@ -151,7 +151,14 @@ class StimView(gb.FrameWidget):
         self.active_type = 0
 
 
-    def generate_cards(self):
+    def generate_cards(self,number_trials=None):
+
+        # If the number of desired trials was provided, get it from the widget
+        if number_trials is None:
+            try:
+                number_trials = int(self.nb_trials.get_input().strip())
+            except (ValueError, AttributeError):
+                number_trials = 12  # fallback if input empty or invalid
 
         #in case a the chronometer is already running, we stop it
         self.parent.stop_clock()
@@ -170,11 +177,11 @@ class StimView(gb.FrameWidget):
 
         seed = random.random()
 
-        self.preview.card_methods[self.active_type](seed=seed)
+        self.preview.card_methods[self.active_type](seed=seed,nb_card=number_trials)
         #self.preview.next_card(do_callback=False) #muted as we want to be able to do the heavy lifting of generating cards long before to display the first one
     
         if self.view:
-            self.view[1].card_methods[self.active_type](seed=seed)
+            self.view[1].card_methods[self.active_type](seed=seed,nb_card=number_trials)
             #self.view[1].next_card(do_callback=False) #muted as we want to be able to do the heavy lifting of generating cards long before to display the first one
         
         #start the chronometer
