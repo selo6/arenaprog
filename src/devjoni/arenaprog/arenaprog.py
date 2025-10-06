@@ -118,7 +118,7 @@ class StimView(gb.FrameWidget):
 
         super().__init__(parent)
         
-        self.nb_trials_text = gb.TextWidget(self, 'Number of trials:')
+        self.nb_trials_text = gb.TextWidget(self, 'Number of trials to generate:')
         self.nb_trials_text.grid(row=0, column=0, sticky='WE')
 
         self.nb_trials = gb.EntryWidget(self)
@@ -280,28 +280,42 @@ class CameraControlView(gb.FrameWidget):
                 self, text='')
         self.record_details.grid(row=0, column=4)
 
-        self.video_path_text = gb.TextWidget(self, 'Video saving path:')
+        self.video_path_text = gb.TextWidget(self, 'Video name:')
         self.video_path_text.grid(row=1, column=0, sticky='WE')
         
         self.filename = gb.EntryWidget(self)
         self.filename.set_input('video.avi')
         self.filename.grid(row=1,column=1, columnspan=3)
 
+        self.folder_path_text = gb.TextWidget(self, 'Working folder path:')
+        self.folder_path_text.grid(row=2, column=0, sticky='WE')
+        
+        self.folderpath = gb.EntryWidget(self)
+        self.folderpath.set_input('C:/Experiment/')
+        self.folderpath.grid(row=2,column=1)
+
+        self.fly_name_text = gb.TextWidget(self, 'Individual name:')
+        self.fly_name_text.grid(row=3, column=0, sticky='WE')
+        
+        self.flyname = gb.EntryWidget(self)
+        self.flyname.set_input('Fly1')
+        self.flyname.grid(row=3,column=1)
+
         self.video_fps_text = gb.TextWidget(self, 'Video display rate (1/N):')
-        self.video_fps_text.grid(row=2, column=0, sticky='WE')
+        self.video_fps_text.grid(row=4, column=0, sticky='WE')
         
         self.fps = gb.EntryWidget(self)
         self.fps.set_input('10')
-        self.fps.grid(row=2,column=1)
+        self.fps.grid(row=4,column=1)
 
         self.calibration_btn = gb.ButtonWidget(self, text='Manual Calibration', command=self.calibration)
-        self.calibration_btn.grid(row=3, column=0)
+        self.calibration_btn.grid(row=5, column=0)
 
         self.auto_calibration_btn = gb.ButtonWidget(self, text='Auto Calibration', command=self.auto_calibration)
-        self.auto_calibration_btn.grid(row=3, column=1)
+        self.auto_calibration_btn.grid(row=5, column=1)
 
         self.create_calib_mask_btn = gb.ButtonWidget(self, text='Create Mask', command=self.create_calib_mask)
-        self.create_calib_mask_btn.grid(row=3, column=2)
+        self.create_calib_mask_btn.grid(row=5, column=2)
 
 
 
@@ -355,12 +369,9 @@ class CameraControlView(gb.FrameWidget):
 
         #deactivate the buttons so the user doesn't try to trigger another recording or preview while one is running
         self.disable_controls()
-
-        # get filename from the GUI inputs
-        save_path = self.filename.get_input().strip() or "video.avi"
         
         #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
-        thrd_record = threading.Thread(target=self.record_video_cv2,kwargs={"save_path": save_path, "save_codec": "DIVX"}, daemon=True)
+        thrd_record = threading.Thread(target=self.record_video_cv2,kwargs={"save_path": None, "save_codec": "DIVX"}, daemon=True)
         thrd_record.start()
 
 
@@ -405,7 +416,7 @@ class CameraControlView(gb.FrameWidget):
  
         
     
-    def record_video_cv2(self,duration=0, vid_w = 1280, vid_h = 800, preview_rate=None, save_path=None, save_codec='XVID'):
+    def record_video_cv2(self,duration=0, vid_w = 1280, vid_h = 800, preview_rate=None, save_path=None, indiv_name=None, trial_number=None, save_codec='XVID'):
         '''Used to record videos using the opencv package.
         Optional parameters:
         duration --> (in seconds) if user wants to stop the recording after a given duration. If 0, the recording needs to be stopped manually.
@@ -416,9 +427,34 @@ class CameraControlView(gb.FrameWidget):
         save_path --> character string of the full path of the video to be saved (folder path + video name + extention, usually .avi)
         save_codec --> codec to use to save the video. 'XVID' and 'DIVX' works. Check to see what else is available. Please change the file expension accordingly.'''
         
+        
         # If no path was provided, get it from the widget
         if save_path is None:
-            save_path = self.filename.get_input().strip() or "video.avi"
+
+            #get the video name and the path
+            video_name=self.filename.get_input().strip()
+            folder_path=self.folderpath.get_input().strip()
+
+            #get the name of the fly
+            if indiv_name is None:
+                indiv_name=self.flyname.get_input().strip() or "Fly1"
+            
+            #if the trial information is available, we use it otherwise we do not have trial mentioned in file name
+            if trial_number is None:
+                trial_info="_"
+            else:
+                trial_info="_trial" + str(trial_number) + "_"
+
+            #assemble the video file name
+            video_file=str(indiv_name) + trial_info + video_name
+
+            #check if the folder path exist and if not create it
+            if not os.path.exists(os.path.join(folder_path, indiv_name)):
+                os.makedirs(os.path.join(folder_path, indiv_name))
+
+            #assemble the full path of the video file
+            save_path = os.path.join(folder_path, indiv_name, video_file)
+            print(save_path)
 
         # If preview rate was provided, get it from the widget
         if preview_rate is None:
