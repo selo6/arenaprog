@@ -317,6 +317,9 @@ class CameraControlView(gb.FrameWidget):
         self.create_calib_mask_btn = gb.ButtonWidget(self, text='Create Mask', command=self.create_calib_mask)
         self.create_calib_mask_btn.grid(row=5, column=2)
 
+        self.full_experiment_btn = gb.ButtonWidget(self, text='Run Experiment', command=self.full_experiment_process)
+        self.full_experiment_btn.grid(row=7, column=0, columnspan=3)
+        self.full_experiment_btn.set(bg='green')
 
 
         #get the list of active camras
@@ -831,7 +834,13 @@ class CameraControlView(gb.FrameWidget):
             auto_calib_image_temp2 = cv2.flip(auto_calib_image_temp,180)
             self.auto_calib_image_GRAY=cv2.cvtColor(auto_calib_image_temp2, cv2.COLOR_BGR2GRAY)
             
-            cv2.imshow("auto calibration image", self.auto_calib_image_GRAY)
+            #cv2.imshow("auto calibration image", self.auto_calib_image_GRAY)
+
+        #close the video capture and the window
+        cv2.destroyAllWindows()
+
+        #let the user know calibration is done
+        print("Calibration complete")
 
     
     def create_calib_mask(self,image=None):
@@ -924,6 +933,34 @@ class CameraControlView(gb.FrameWidget):
         # #cv2.imshow('mask', mask)
 
         # return(mask)
+
+    #make a definition that run the full display and recording process for the number of trials indicated
+    def full_experiment_process(self):
+        
+        #get the number of trials
+        nb_trial_to_run=self.stim.nb_trials.get_input().strip()
+
+        #generate all the cards for the experiment
+        self.stim.generate_cards(number_trials=nb_trial_to_run)
+
+        #get calibration done
+        self.auto_calibration()
+        
+        #for each trials
+        for i in range(nb_trial_to_run):
+
+            #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
+            thrd_record = threading.Thread(target=self.record_video_cv2,kwargs={"save_path": None, "trial_number": i, "save_codec": "DIVX"}, daemon=True)
+            thrd_record.start()
+
+            #need to figure out how to pass the next card at the right moment... 
+            # maybe start a while loop waiting for a signal passed in a queue from within the recording thread, 
+            # at the correct moment (immidiately after the recording window opens?)
+            
+
+
+
+
 
 
 
