@@ -25,6 +25,7 @@ from .video_capture_openCV import VideoCaptureAsync
 #get the module to run multiprocessing
 #from multiprocessing import Process
 import threading
+import multiprocessing
 from queue import Queue, Empty
 
 import time
@@ -34,6 +35,300 @@ from skimage.metrics import structural_similarity
 from .version import __version__
 
 IMAGE_UPDATE_INTERVAL = 10 # ms
+
+
+def run_video_preview(camera_index, q_video):
+    """A definition that will be used to display the camera images as preview (not recording, just displaying).
+    Please turn off before starting the recording"""
+
+    cv2.namedWindow("preview")
+    vc = cv2.VideoCapture(camera_index)
+    if vc.isOpened():
+        rval, frame = vc.read()
+    else:
+        rval = False
+
+    while rval and vc.isOpened():
+        cv2.imshow("preview", frame)
+        rval, frame = vc.read()
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+        if cv2.getWindowProperty('preview', cv2.WND_PROP_VISIBLE) < 1:
+            break
+        try:
+            msg = q_video.get_nowait()
+            if msg == "stop":
+                break
+        except Empty:
+            pass
+
+    cv2.destroyAllWindows()
+    vc.release()
+
+
+def create_calib_mask(camera_index, image=None, calib_background=None):
+    '''Definition to create a mask based on the automatic detection of the location of the stimuli. 
+    The mask is used for the movement detector to detect when the fly passes over the stimulus.
+    Depening on the method chosen, get a mask to place over the movement detection images 
+    for the detection of the flie entering the stimulus location or use provided.'''
+
+    #if no image provided, we get our own from the camera
+    if image is None:
+        #close the opencv windows that were already open (like if we made a previsualisation one) before to start capturing an image
+        cv2.destroyAllWindows()
+
+        #open a new video window and get the input from the camera
+        #cv2.namedWindow("calib")
+        vc = cv2.VideoCapture(camera_index) 
+
+        if vc.isOpened(): # try to get the first frame
+            rval, stimu_for_mask_image = vc.read()
+        else:
+            rval = False
+
+        #if we've got an image, make it the same dimension and rotation than the recording one, make it gray and show it
+        if rval and vc.isOpened():
+            stimu_for_mask_image_temp=cv2.resize(stimu_for_mask_image,(1280,800))
+            stimu_for_mask_image_temp2 = cv2.flip(stimu_for_mask_image_temp,180)
+            stimu_for_mask_image_GRAY=cv2.cvtColor(stimu_for_mask_image_temp2, cv2.COLOR_BGR2GRAY)
+            
+            #cv2.imshow("auto calibration image", auto_calib_image_GRAY)
+    else:
+        stimu_for_mask_image_GRAY=image
+    
+    #check if the background image was given
+    if calib_background is None:
+        print("Calibration not done")
+    else:
+        auto_calib_image_GRAY=calib_background
+
+
+    # --- Absolute difference with background ---
+    diff = cv2.absdiff(auto_calib_image_GRAY, stimu_for_mask_image_GRAY)
+
+    # --- Threshold to extract changed pixels ---
+    _, mask = cv2.threshold(diff, 100, 255, cv2.THRESH_BINARY)
+
+    # --- Clean noise ---
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)   # remove specks
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)  # close small gaps
+
+    # --- Optional: keep only large enough regions ---
+    # useful if projector or camera adds random flicker
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    mask_clean = np.zeros_like(mask)
+    for c in contours:
+        if cv2.contourArea(c) > 100:  # keep only "real" stimuli
+            cv2.drawContours(mask_clean, [c], -1, 255, -1)
+
+    #cv2.imshow("calib_mask", mask_clean)
+    #print("Mask regions:", len(contours))
+
+    return mask_clean
+
+
+def movement_detect(masking=None, q_video=None, mov_detec_q=None):
+    """function to crop and detect movements in images sent from the recording loop, based on changes in gray levels
+    A masking needs to be given based on the create_calib_mask definition.
+    It also needs a queue to communicate with the other processes (q_video) and one to receive the images to analyse (mov_detec_q)."""
+
+    #set the mean of gray of previous frame as 0 so teh loop doesn't stop at the biginning (when we set a threshold)
+    last_mean = 0
+
+    #create a frame counter to exclude the first one from triggering the response
+    analysed_frame=0
+
+    while(True):
+
+        try:
+            analyse_frame=mov_detec_q.get_nowait() #check if there is a frame available in the queue
+            gray = cv2.cvtColor(analyse_frame, cv2.COLOR_BGR2GRAY) #convert image to grey levels
+            
+            if masking is None:
+                print("Please generate a mask first") 
+                break
+
+            # Compute mean intensity inside the masked region
+            roi_mean = cv2.mean(gray, mask=masking)[0] #compute the grey level in the area not masked
+            gray_diff_result = abs(roi_mean - last_mean) #compute the difference of the mean levels of grey between this frame and the previous one
+            print(gray_diff_result) #print the difference (we can set a threshold here, instead to trigger an action)
+            last_mean = roi_mean #change the value of the grey of the previous frame to the new one
+            
+            #to show the image with the mask
+            #masked_frame = cv2.bitwise_and(gray, gray, mask=masking)
+            #cv2.imshow("Masked Frame", masked_frame)
+
+            if gray_diff_result>3 and analysed_frame>1: #if the difference between the two frames reach a threshold, we send the signal to stop the recording
+                q_video.put("stop")  ###### This is where we want to trigger rewards etc ########### 
+
+                #after doing things we need, we close the camera windows and stop the loop
+                cv2.destroyAllWindows()
+                break 
+
+            #add 1 to the frame counter
+            analysed_frame+=1
+
+        except: #if the queue was empty, pass
+            pass
+            #print("no frame yet")
+            
+
+        #to stop the loop, user can push the q key
+        if (cv2.waitKey(1) & 0xFF == ord('q')):
+            break
+
+        # Or check if stop was requested by clicking the stop button
+        try:
+            msg_mov = stop_mov_detec_q.get_nowait()
+            if msg_mov == "stop":
+                break
+        except Empty:
+            pass
+
+
+def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_rate=10, save_path=None, working_folder=os.getcwd(), name_of_video="Video.avi", indiv_name="Fly1", trial_number=None, save_codec='XVID', full_exp='n', auto_detection='n',mov_detec_q=None,stop_mov_detec_q=None,next_card_q=None,next_loop_q=None,q_video=None):
+    '''Used to record videos using the opencv package.
+    Optional parameters:
+    duration --> (in seconds) if user wants to stop the recording after a given duration. If 0, the recording needs to be stopped manually.
+    vid_w --> recording width in pixels.
+    vid_h --> recording height in pixels.
+    preview_rate --> rate of frames from the recording that will also be displayed to the user. 
+                    By default every 10 frames will be displayed. A lower number will increase the strain on the system and may slowe down the recording rate.
+    save_path --> character string of the full path of the video to be saved (folder path + video name + extention, usually .avi)
+    working_folder --> used if the full path is not given, to create a path from information given in the gui
+    save_codec --> codec to use to save the video. 'XVID' and 'DIVX' works. Check to see what else is available. Please change the file expension accordingly.
+    It needs several queues to communicate with the various processes around the recording:
+    mov_detec_q --> to pass images to the movement detector process
+    stop_mov_detec_q --> used to send a stop message to the movement detector if teh recording process is terminated
+    next_card_q --> in the case of automatising the full experiment it is used to trigger the display of stimuli
+    next_loop_q --> in the case of automatising the full experiment it is used to signal that the recording of the trial is done and we can move to teh next one
+    q_video --> used to send stop signals from the gui process to the recording and preview process'''
+    
+    
+    # If no path was provided, get it from the widget
+    if save_path is None:
+        
+        #if the trial information is available, we use it, otherwise we do not have trial mentioned in file name
+        if trial_number is None:
+            trial_info="_"
+        else:
+            trial_info="_trial" + str(trial_number) + "_"
+        
+        #assemble the video file name
+        video_file=str(indiv_name) + trial_info + name_of_video
+        
+        #check if the folder path exist and if not create it
+        if not os.path.exists(os.path.join(working_folder, indiv_name)):
+            os.makedirs(os.path.join(working_folder, indiv_name))
+        
+        #assemble the full path of the video file
+        save_path = os.path.join(working_folder, indiv_name, video_file)
+        print(save_path)
+
+    
+    #close the opencv windows that were already open (like if we made a previsualisation one) before to start recording
+    cv2.destroyAllWindows()
+
+    #clear the queue of images for movement detection
+    if auto_detection=="y":
+        while not mov_detec_q.empty():
+            mov_detec_q.get_nowait()
+
+    #Intiate Video Capture object
+    capture = VideoCaptureAsync(src=camera, width=vid_w, height=vid_h)
+    
+    #Intiate codec for Video recording object
+    ext = os.path.splitext(save_path)[1].lower()
+    if ext == ".avi":
+        fourcc = cv2.VideoWriter_fourcc(*"XVID")
+    elif ext == ".mp4":
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    else:
+        save_path += ".avi"
+        fourcc = cv2.VideoWriter_fourcc(*"XVID")
+    
+    #start video capture
+    capture.start()
+
+    #get the time when the recording starts
+    time_start = time.time()
+
+    #if the user mentionned a maximum duration we compute the end time, otherwise we give one in 10 years (an crazy far so we don't have to worry about the recording stopping on its own)
+    if duration!=0:
+        time_end = time.time() + duration
+    else:
+        time_end = time.time() + 3.154e+8
+
+    frames = 0
+    #Create array to hold frames from capture
+    images = []
+
+    #if this recording is part of an automtised full experiment process, send the signal to display (change) the stimulus
+    if full_exp=="y":
+        next_card_q.put("GO!")
+
+    # Capture for duration defined by variable 'duration'
+    while time.time() <= time_end:
+        ret, new_frame = capture.read()
+        frames += 1
+        images.append(new_frame)
+        # Create a full screen video display. Comment the following 2 lines if you have a specific dimension 
+        # of display window in mind and don't mind the window title bar.
+        #cv2.namedWindow('image',cv2.WND_PROP_FULLSCREEN)
+        #cv2.setWindowProperty('image', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+        # Here only every 10th frame is shown on the display. Change the preview_rate to a value suitable to the project by passing the value in the function. 
+        # The higher the number, the more processing required and the slower it becomes
+        if frames ==0 or frames%preview_rate == 0:
+            # This project used a Pitft screen and needed to be displayed in fullscreen. 
+            # The larger the frame, higher the processing and slower the program.
+            # Uncomment the following line if you have a specific display window in mind. 
+            frame = cv2.resize(new_frame,(1280,800))
+            frame = cv2.flip(frame,180)
+            #if the autodetection is wanted send frames to the process for analyses
+            if auto_detection=="y":
+                mov_detec_q.put(frame) #put the frame in the queue for movement detection analysis
+            cv2.imshow('frame', frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'): #press q to stop the process
+            break
+        #or check that the display window has been manually closed by the user
+        if frames>20 and cv2.getWindowProperty('frame',cv2.WND_PROP_VISIBLE) < 1: #we added a frame delay because the window takes time to appear and thus this line stops the loop after one frame (even if we put frames>1 it is not enough)
+            break
+        # Or check if stop was requested by clicking the stop button
+        try:
+            msg = q_video.get_nowait()
+            if msg == "stop":
+                break
+        except Empty:
+            pass
+    capture.stop()
+    cv2.destroyAllWindows()
+    # The fps variable which counts the number of frames and divides it by 
+    # the duration gives the frames per second which is used to record the video later.
+    time_total=time.time() - time_start
+    fps = frames/time_total
+
+    #pass a stop signal to the movement detector loop, through its dedicated queue
+    stop_mov_detec_q.put("stop")
+
+    print(frames)
+    print(len(images)) 
+    print(time_total)
+    print(fps)
+    # The following line initiates the video object and video file named 'video.avi' 
+    # of width and height declared at the beginning.
+    out = cv2.VideoWriter(save_path, fourcc, fps, (vid_w,vid_h))
+    print("creating video")
+    # The loop goes through the array of images and writes each image to the video file
+    for img in images:
+        if img.shape[1] != vid_w or img.shape[0] != vid_h: #if the image captured is not matching the one passed to the video writer, make it match. 
+            img = cv2.resize(img, (vid_w, vid_h))
+        out.write(img)
+    images = []
+    print("Done")
+
+    if full_exp=="y":
+        next_loop_q.put("GO!")
 
 
 class MovementView(gb.FrameWidget):
@@ -332,6 +627,8 @@ class CameraControlView(gb.FrameWidget):
         self.stop_full_experiment_btn.grid(row=9, column=0, columnspan=3)
         self.stop_full_experiment_btn.set(bg='red')
 
+        #start the queue manager for the multiprocessing
+        manager = multiprocessing.Manager()
 
         #get the list of active camras
         self.camera_list=enumerate_cameras(cv2.CAP_MSMF)
@@ -344,20 +641,20 @@ class CameraControlView(gb.FrameWidget):
             print(self.camera_list[self.camera])
         
         #create a queue so we can pass stoping messages to the video preview and recording threads.
-        self.q_video = Queue()
-        self.stop_mov_detec_q = Queue() #same to stop the movement detector thread
+        self.q_video = manager.Queue()
+        self.stop_mov_detec_q = manager.Queue() #same to stop the movement detector thread
 
         #create a queue so we can pass images from the cam to the movement detector
-        self.mov_detec_q = Queue()
+        self.mov_detec_q = manager.Queue()
 
         #create a queue to pass a signal to change the stimulus card at the right moment in the recording process
-        self.next_card_q = Queue()
+        self.next_card_q = manager.Queue()
 
         #create a queue to pass the signal to start the next loop (trial) in the automatic running of the full experiment.
-        self.next_loop_q = Queue()
+        self.next_loop_q = manager.Queue()
 
         #create a queue to pass the signal to stop the full experiment (automatic) process.
-        self.stop_full_exp_q = Queue()
+        self.stop_full_exp_q = manager.Queue()
 
         #create a list to store the calibration coordinates
         self.calib_coord=[]
@@ -366,20 +663,15 @@ class CameraControlView(gb.FrameWidget):
         self.stim = StimView(self.parent.parent)
         
 
-        
-
     def play(self):
-        '''function that launches the preview_video_cv2() function below in a new thread to keep the main gui responsive'''
-
         # Clear any leftover stop signals
         while not self.q_video.empty():
             self.q_video.get_nowait()
 
-        #deactivate the buttons so the user doesn't try to trigger another recording or preview while one is running
         self.disable_controls()
 
-        #start the the preview using a new thread from the cpu so the main GUI stays active
-        thrd_preview = threading.Thread(target=self.preview_video_cv2, daemon=True)
+        # Start external function in a new process
+        thrd_preview = multiprocessing.Process(target=run_video_preview, args=(self.camera, self.q_video),daemon=True)
         thrd_preview.start()
         
     
@@ -390,11 +682,26 @@ class CameraControlView(gb.FrameWidget):
         while not self.q_video.empty():
             self.q_video.get_nowait()
 
+        #get the video name and the path
+        video_name=self.filename.get_input().strip() or None
+        folder_path=self.folderpath.get_input().strip() or os.getcwd()
+
+        #get the name of the fly
+        individual_name=self.flyname.get_input().strip() or None
+
+        #get the response of the user in the gui about activating the autodetection
+        activ_autoD=self.auto_detect.get_input().strip()
+
         #deactivate the buttons so the user doesn't try to trigger another recording or preview while one is running
         self.disable_controls()
         
+        #if the autodetection is wanted, start the process
+        if activ_autoD=="y":
+            thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":None, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q}, daemon=True)
+            thrd_detect.start()
+        
         #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
-        thrd_record = threading.Thread(target=self.record_video_cv2,kwargs={"save_path": None, "save_codec": "DIVX"}, daemon=True)
+        thrd_record = multiprocessing.Process(target=record_video_cv2,kwargs={"camera":self.camera, "working_folder":folder_path, "name_of_video":video_name, "indiv_name":individual_name,"save_path": None, "save_codec": "DIVX", "auto_detection":activ_autoD, "mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q, "next_card_q":self.next_card_q, "next_loop_q":self.next_loop_q, "q_video":self.q_video}, daemon=True)
         thrd_record.start()
 
 
@@ -407,6 +714,7 @@ class CameraControlView(gb.FrameWidget):
         #reanable the buttons in the gui
         self.enable_controls()
 
+
     def stop_full_experiment_process(self):
         '''function to stop the automatic run of the full experiment (full set of trials). Including the recording currently running.'''
         #trigger a stop for the full experiment loop and to stop the recording 
@@ -416,210 +724,6 @@ class CameraControlView(gb.FrameWidget):
         #reanable the buttons in the gui
         self.enable_controls()
 
-
-    def preview_video_cv2(self):
-
-        cv2.namedWindow("preview")
-        vc = cv2.VideoCapture(self.camera) 
-
-        if vc.isOpened(): # try to get the first frame
-            rval, frame = vc.read()
-        else:
-            rval = False
-
-        while rval and vc.isOpened(): 
-            cv2.imshow("preview", frame)
-            rval, frame = vc.read()
-            if cv2.waitKey(1) & 0xFF == ord('q'): #press q to exit
-                break
-            if cv2.getWindowProperty('preview',cv2.WND_PROP_VISIBLE) < 1: #or check that the display window has been manually closed by the user
-                break
-            # Or check if stop was requested by clicking the stop button
-            try:
-                msg = self.q_video.get_nowait()
-                if msg == "stop":
-                    break
-            except Empty:
-                pass
-        
-        #stop the video process
-        cv2.destroyAllWindows()
-        vc.release()
-
-        #reanable the buttons in the gui
-        self.enable_controls()
- 
-    
-    def record_video_cv2(self,duration=0, vid_w = 1280, vid_h = 800, preview_rate=None, save_path=None, indiv_name=None, trial_number=None, save_codec='XVID', full_exp=None, auto_detection=None):
-        '''Used to record videos using the opencv package.
-        Optional parameters:
-        duration --> (in seconds) if user wants to stop the recording after a given duration. If 0, the recording needs to be stopped manually.
-        vid_w --> recording width in pixels.
-        vid_h --> recording height in pixels.
-        preview_rate --> rate of frames from the recording that will also be displayed to the user. 
-                        By default every 10 frames will be displayed. A lower number will increase the strain on the system and may slowe down the recording rate.
-        save_path --> character string of the full path of the video to be saved (folder path + video name + extention, usually .avi)
-        save_codec --> codec to use to save the video. 'XVID' and 'DIVX' works. Check to see what else is available. Please change the file expension accordingly.'''
-        
-        print("tesR1")
-        # If no path was provided, get it from the widget
-        if save_path is None:
-            print("tesR12")
-            #get the video name and the path
-            video_name=self.filename.get_input().strip()
-            folder_path=self.folderpath.get_input().strip()
-            print("tesR13")
-            #get the name of the fly
-            if indiv_name is None:
-                indiv_name=self.flyname.get_input().strip() or "Fly1"
-            print("tesR14")
-            #if the trial information is available, we use it otherwise we do not have trial mentioned in file name
-            if trial_number is None:
-                trial_info="_"
-            else:
-                trial_info="_trial" + str(trial_number) + "_"
-            print("tesR15")
-            #assemble the video file name
-            video_file=str(indiv_name) + trial_info + video_name
-            print("tesR16")
-            #check if the folder path exist and if not create it
-            if not os.path.exists(os.path.join(folder_path, indiv_name)):
-                os.makedirs(os.path.join(folder_path, indiv_name))
-            print("tesR17")
-            #assemble the full path of the video file
-            save_path = os.path.join(folder_path, indiv_name, video_file)
-            print(save_path)
-
-        print("tesR2")
-
-        # If preview rate was provided, get it from the widget
-        if preview_rate is None:
-            try:
-                preview_rate = int(self.fps.get_input().strip())
-            except (ValueError, AttributeError):
-                preview_rate = 10  # fallback if input empty or invalid
-
-        print("tesR3")
-        # If no information was given on whether it is an automatic running of the entire experiment, set it to no
-        if full_exp is None:
-            full_exp = "n"
-            print("running single recording")
-
-        print("tesR4")
-        # If no information was given on whether it is an automatic running of the entire experiment, set it to no
-        if auto_detection is None:
-            try:
-                auto_detection = self.fps.get_input().strip() #get the one from the gui
-            except:
-                auto_detection = "y"
-
-        print("tesR5")
-        #close the opencv windows that were already open (like if we made a previsualisation one) before to start recording
-        cv2.destroyAllWindows()
-
-        #clear the queue of images for movement detection
-        while not self.mov_detec_q.empty():
-            self.mov_detec_q.get_nowait()
-
-        #start the automatic detection of the fly on the stimulus if teh user wants it activated
-        if auto_detection=="y":
-            thrd_mov_detect = threading.Thread(target=self.movement_detect, daemon=True)
-            thrd_mov_detect.start()
-            print("tesR6")
-
-        #Intiate Video Capture object
-        capture = VideoCaptureAsync(src=self.camera, width=vid_w, height=vid_h)
-        print("tesR7")
-        #Intiate codec for Video recording object
-        ext = os.path.splitext(save_path)[1].lower()
-        if ext == ".avi":
-            fourcc = cv2.VideoWriter_fourcc(*"XVID")
-        elif ext == ".mp4":
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        else:
-            save_path += ".avi"
-            fourcc = cv2.VideoWriter_fourcc(*"XVID")
-        
-        #start video capture
-        capture.start()
-
-        #get the time when the recording starts
-        time_start = time.time()
-
-        #if the user mentionned a maximum duration we compute the end time, otherwise we give one in 10 years (an crazy far so we don't have to worry about the recording stopping on its own)
-        if duration!=0:
-            time_end = time.time() + duration
-        else:
-            time_end = time.time() + 3.154e+8
-
-        frames = 0
-        #Create array to hold frames from capture
-        images = []
-
-        #if this recording is part of an automtised full experiment process, send the signal to display (change) the stimulus
-        if full_exp=="yes":
-            self.next_card_q.put("GO!")
-            print("tesR8")
-
-        # Capture for duration defined by variable 'duration'
-        while time.time() <= time_end:
-            ret, new_frame = capture.read()
-            frames += 1
-            images.append(new_frame)
-            # Create a full screen video display. Comment the following 2 lines if you have a specific dimension 
-            # of display window in mind and don't mind the window title bar.
-            #cv2.namedWindow('image',cv2.WND_PROP_FULLSCREEN)
-            #cv2.setWindowProperty('image', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-            # Here only every 10th frame is shown on the display. Change the preview_rate to a value suitable to the project by passing the value in the function. 
-            # The higher the number, the more processing required and the slower it becomes
-            if frames ==0 or frames%preview_rate == 0:
-                # This project used a Pitft screen and needed to be displayed in fullscreen. 
-                # The larger the frame, higher the processing and slower the program.
-                # Uncomment the following line if you have a specific display window in mind. 
-                frame = cv2.resize(new_frame,(1280,800))
-                frame = cv2.flip(frame,180)
-                self.mov_detec_q.put(frame) #put the frame in the queue for movement detection analysis
-                cv2.imshow('frame', frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'): #press q to stop the process
-                break
-            #or check that the display window has been manually closed by the user
-            if frames>20 and cv2.getWindowProperty('frame',cv2.WND_PROP_VISIBLE) < 1: #we added a frame delay because the window takes time to appear and thus this line stops the loop after one frame (even if we put frames>1 it is not enough)
-                break
-            # Or check if stop was requested by clicking the stop button
-            try:
-                msg = self.q_video.get_nowait()
-                if msg == "stop":
-                    break
-            except Empty:
-                pass
-        capture.stop()
-        cv2.destroyAllWindows()
-        # The fps variable which counts the number of frames and divides it by 
-        # the duration gives the frames per second which is used to record the video later.
-        time_total=time.time() - time_start
-        fps = frames/time_total
-
-        #pass a stop signal to the movement detector loop, through its dedicated queue
-        self.stop_mov_detec_q.put("stop")
-
-        print(frames)
-        print(len(images)) 
-        print(time_total)
-        print(fps)
-        # The following line initiates the video object and video file named 'video.avi' 
-        # of width and height declared at the beginning.
-        out = cv2.VideoWriter(save_path, fourcc, fps, (vid_w,vid_h))
-        print("creating video")
-        # The loop goes through the array of images and writes each image to the video file
-        for img in images:
-            if img.shape[1] != vid_w or img.shape[0] != vid_h: #if the image captured is not matching the one passed to the video writer, make it match. 
-                img = cv2.resize(img, (vid_w, vid_h))
-            out.write(img)
-        images = []
-        print("Done")
-
-        if full_exp=="yes":
-            self.next_loop_q.put("GO!")
 
     #fuunction to change the camera index when the user press the button
     def next_camera(self):
@@ -803,69 +907,7 @@ class CameraControlView(gb.FrameWidget):
     def point_capture(self,event, x, y, flags,params):
         if event == 1:
             self.clicked_point = (x, y)
-
-            
-
-    #function to crop and detect movements in images sent from the recording loop, based on changes in gray levels
-    def movement_detect(self):
-
-        #set the mean of gray of previous frame as 0 so teh loop doesn't stop at the biginning (when we set a threshold)
-        last_mean = 0
-
-        masking=None
-
-        #create a frame counter to exclude the first one from triggering the response
-        analysed_frame=0
-
-        while(True):
-
-            try:
-                analyse_frame=self.mov_detec_q.get_nowait() #check if there is a frame available in the queue
-                gray = cv2.cvtColor(analyse_frame, cv2.COLOR_BGR2GRAY) #convert image to grey levels
-                
-                if masking is None:
-                    masking=self.create_calib_mask(gray)
-                    #cv2.imshow("masking", masking)
-                    continue
-
-                # Compute mean intensity inside the masked region
-                roi_mean = cv2.mean(gray, mask=masking)[0] #compute the grey level in the area not masked
-                gray_diff_result = abs(roi_mean - last_mean) #compute the difference of the mean levels of grey between this frame and the previous one
-                print(gray_diff_result) #print the difference (we can set a threshold here, instead to trigger an action)
-                last_mean = roi_mean #change the value of the grey of the previous frame to the new one
-                
-                #to show the image with the mask
-                #masked_frame = cv2.bitwise_and(gray, gray, mask=masking)
-                #cv2.imshow("Masked Frame", masked_frame)
-
-                if gray_diff_result>3 and analysed_frame>1: #if the difference between the two frames reach a threshold, we send the signal to stop the recording
-                    self.q_video.put("stop")  ###### This is where we want to trigger rewards etc ########### 
-
-                    #after doing things we need, we close the camera windows and stop the loop
-                    cv2.destroyAllWindows()
-                    break 
-
-                #add 1 to the frame counter
-                analysed_frame+=1
-
-            except: #if the queue was empty, pass
-                pass
-                #print("no frame yet")
-                
-
-            #to stop the loop, user can push the q key
-            if (cv2.waitKey(1) & 0xFF == ord('q')):
-                break
-
-            # Or check if stop was requested by clicking the stop button
-            try:
-                msg_mov = self.stop_mov_detec_q.get_nowait()
-                if msg_mov == "stop":
-                    break
-            except Empty:
-                pass
     
-
 
     def auto_calibration(self):
         '''capture the image of the arena with the stimulus display window open but no stimulus displayed 
@@ -904,101 +946,11 @@ class CameraControlView(gb.FrameWidget):
         #let the user know calibration is done
         print("Calibration complete")
 
-    
-    def create_calib_mask(self,image=None):
-        '''depening on the method chosen, get a mask to place over the movement detection images 
-        for the detection of the flie entering the stimulus location'''
-
-        #if no image provided, we get our own from the camera
-        if image is None:
-            #close the opencv windows that were already open (like if we made a previsualisation one) before to start capturing an image
-            cv2.destroyAllWindows()
-
-            #open a new video window and get the input from the camera
-            #cv2.namedWindow("calib")
-            vc = cv2.VideoCapture(self.camera) 
-
-            if vc.isOpened(): # try to get the first frame
-                rval, stimu_for_mask_image = vc.read()
-            else:
-                rval = False
-
-            #if we've got an image, make it the same dimension and rotation than the recording one, make it gray and show it
-            if rval and vc.isOpened():
-                stimu_for_mask_image_temp=cv2.resize(stimu_for_mask_image,(1280,800))
-                stimu_for_mask_image_temp2 = cv2.flip(stimu_for_mask_image_temp,180)
-                self.stimu_for_mask_image_GRAY=cv2.cvtColor(stimu_for_mask_image_temp2, cv2.COLOR_BGR2GRAY)
-                
-                #cv2.imshow("auto calibration image", auto_calib_image_GRAY)
-        else:
-            self.stimu_for_mask_image_GRAY=image
-        
-        # --- Absolute difference with background ---
-        diff = cv2.absdiff(self.auto_calib_image_GRAY, self.stimu_for_mask_image_GRAY)
-
-        # --- Threshold to extract changed pixels ---
-        _, mask = cv2.threshold(diff, 100, 255, cv2.THRESH_BINARY)
-
-        # --- Clean noise ---
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)   # remove specks
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)  # close small gaps
-
-        # --- Optional: keep only large enough regions ---
-        # useful if projector or camera adds random flicker
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        mask_clean = np.zeros_like(mask)
-        for c in contours:
-            if cv2.contourArea(c) > 100:  # keep only "real" stimuli
-                cv2.drawContours(mask_clean, [c], -1, 255, -1)
-
-        #cv2.imshow("calib_mask", mask_clean)
-        #print("Mask regions:", len(contours))
-
-        return mask_clean
-
-        ###########
-        # different technique (maybe more advanced and more precise) but does not work, yet.
-
-        # # Compute SSIM between the two images
-        # (score, diff) = structural_similarity(self.auto_calib_image_GRAY, self.stimu_for_mask_image_GRAY, full=True)
-        # print("Image Similarity: {:.4f}%".format(score * 100))
-
-        # # The diff image contains the actual image differences between the two images
-        # # and is represented as a floating point data type in the range [0,1] 
-        # # so we must convert the array to 8-bit unsigned integers in the range
-        # # [0,255] before we can use it with OpenCV
-        # diff = (diff * 255).astype("uint8")
-        # diff_box = cv2.merge([diff, diff, diff])
-
-        # # Threshold the difference image, followed by finding contours to
-        # # obtain the regions of the two input images that differ
-        # thresh = cv2.threshold(diff, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
-        # contours = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        # contours = contours[0] if len(contours) == 2 else contours[1]
-
-        # mask = np.zeros(self.auto_calib_image_GRAY.shape, dtype='uint8')
-
-        # for c in contours:
-        #     area = cv2.contourArea(c)
-        #     if area > 100:
-        #         #x,y,w,h = cv2.boundingRect(c)
-        #         #cv2.rectangle(self.auto_calib_image_GRAY, (x, y), (x + w, y + h), (36,255,12), 2)
-        #         #cv2.rectangle(self.stimu_for_mask_image_GRAY, (x, y), (x + w, y + h), (36,255,12), 2)
-        #         #cv2.rectangle(diff_box, (x, y), (x + w, y + h), (36,255,12), 2)
-        #         cv2.drawContours(mask, [c], 0, (255,255,255), -1)
-
-        # #cv2.imshow('before', self.auto_calib_image_GRAY)
-        # #cv2.imshow('after', self.stimu_for_mask_image_GRAY)
-        # #cv2.imshow('diff', diff)
-        # #cv2.imshow('diff_box', diff_box)
-        # #cv2.imshow('mask', mask)
-
-        # return(mask)
 
     def run_full_experiment_process(self):
         thrd_record = threading.Thread(target=self.full_experiment_process, daemon=True)
         thrd_record.start()
+
 
     #make a definition that run the full display and recording process for the number of trials indicated
     def full_experiment_process(self):
@@ -1006,6 +958,13 @@ class CameraControlView(gb.FrameWidget):
         #clear the queue of sigal to stop the full experiment
         while not self.stop_full_exp_q.empty():
             self.stop_full_exp_q.get_nowait()
+
+        #get the video name and the path
+        video_name=self.filename.get_input().strip() or None
+        folder_path=self.folderpath.get_input().strip() or os.getcwd()
+
+        #get the name of the fly
+        individual_name=self.flyname.get_input().strip() or None
 
         #get the number of trials
         nb_trial_to_run=int(self.stim.nb_trials.get_input().strip())
@@ -1018,12 +977,20 @@ class CameraControlView(gb.FrameWidget):
 
         #get calibration done
         self.auto_calibration()
+
+        #get the response of the user in the gui about activating the autodetection
+        activ_autoD=self.auto_detect.get_input().strip()
+        
+
+        
+        #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
+        thrd_record = multiprocessing.Process(target=record_video_cv2,kwargs={"camera":self.camera, "working_folder":folder_path, "name_of_video":video_name, "indiv_name":individual_name,"save_path": None, "save_codec": "DIVX", "auto_detection":activ_autoD, "mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q, "next_card_q":self.next_card_q, "next_loop_q":self.next_loop_q, "q_video":self.q_video}, daemon=True)
+        
         
         #for each trials
         for i in range(nb_trial_to_run):
         #for i in range(1):
         
-            print("test1")
             #clear the queue of signal to display the next stimulus
             while not self.next_card_q.empty():
                 self.next_card_q.get_nowait()
@@ -1032,9 +999,18 @@ class CameraControlView(gb.FrameWidget):
             while not self.next_loop_q.empty():
                 self.next_loop_q.get_nowait()
 
+            #if the autodetection is wanted, start the process
+            if activ_autoD=="y":
+                thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":None, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q}, daemon=True)
+                thrd_detect.start()
+
+            #display the next stimulus
+            self.stim.view[1].next_card(do_callback=False)
+            self.stim.preview.next_card(do_callback=False)
+
             #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
-            """ thrd_record = threading.Thread(target=self.record_video_cv2,kwargs={"trial_number": i, "save_codec": "DIVX","full_exp":"yes"}, daemon=True)
-            thrd_record.start() """
+            thrd_record = threading.Thread(target=record_video_cv2,kwargs={"camera":self.camera, "working_folder":folder_path, "name_of_video":video_name, "indiv_name":individual_name, "trial_number": i, "save_codec": "DIVX","full_exp":"y"}, daemon=True)
+            thrd_record.start()
                 
             #need to figure out how to pass the next card at the right moment... 
             # maybe start a while loop waiting for a signal passed in a queue from within the recording thread, 
@@ -1049,30 +1025,28 @@ class CameraControlView(gb.FrameWidget):
                 except Empty:
                     pass """
             
-            #display the next stimulus
-            self.stim.view[1].next_card(do_callback=False)
-            self.stim.preview.next_card(do_callback=False)
+
 
             #Save the card displayed
 
 
             #wait for the end of the recording to moove to the new trial
-            """ while(True):
+            while(True):
                 # check if signal to display the next stimulus was sent (when the recording started)
                 try:
                     msg_next_loop = self.next_loop_q.get_nowait()
                     if msg_next_loop == "GO!":
                         break
                 except Empty:
-                    pass """
+                    pass
             
             #check if the stop signal for the full experiment was triggered (if so, the signal to stop the recording should also have been sent and we should arrive here). 
-            """ try:
+            try:
                 msg = self.q_video.get_nowait()
                 if msg == "stop":
                     break
             except Empty:
-                pass """
+                pass
 
             print("trial done, next trial coming up")
     
@@ -1308,10 +1282,10 @@ def main():
     view = TotalView(window, do_camera=do_camera)
     view.grid()
 
-
     window.run()
 
 
 if __name__ == "__main__":
     main()
+    
     #cProfile.run('main()')
