@@ -66,7 +66,7 @@ def run_video_preview(camera_index, q_video):
     vc.release()
 
 
-def create_calib_mask(camera_index, image=None, calib_background=None):
+def create_calib_mask(camera_index=None, image=None, calib_background=None):
     '''Definition to create a mask based on the automatic detection of the location of the stimuli. 
     The mask is used for the movement detector to detect when the fly passes over the stimulus.
     Depening on the method chosen, get a mask to place over the movement detection images 
@@ -128,7 +128,7 @@ def create_calib_mask(camera_index, image=None, calib_background=None):
     return mask_clean
 
 
-def movement_detect(masking=None, q_video=None, mov_detec_q=None):
+def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_q=None):
     """function to crop and detect movements in images sent from the recording loop, based on changes in gray levels
     A masking needs to be given based on the create_calib_mask definition.
     It also needs a queue to communicate with the other processes (q_video) and one to receive the images to analyse (mov_detec_q)."""
@@ -616,10 +616,10 @@ class CameraControlView(gb.FrameWidget):
         self.auto_calibration_btn = gb.ButtonWidget(self, text='Auto Calibration', command=self.auto_calibration)
         self.auto_calibration_btn.grid(row=6, column=1)
 
-        self.create_calib_mask_btn = gb.ButtonWidget(self, text='Create Mask', command=self.create_calib_mask)
+        self.create_calib_mask_btn = gb.ButtonWidget(self, text='Create Mask', command=self.run_create_calib_mask)
         self.create_calib_mask_btn.grid(row=6, column=2)
 
-        self.full_experiment_btn = gb.ButtonWidget(self, text='Run Experiment', command=self.full_experiment_process)
+        self.full_experiment_btn = gb.ButtonWidget(self, text='Run Experiment', command=self.run_full_experiment_process)
         self.full_experiment_btn.grid(row=8, column=0, columnspan=3)
         self.full_experiment_btn.set(bg='green')
 
@@ -697,7 +697,7 @@ class CameraControlView(gb.FrameWidget):
         
         #if the autodetection is wanted, start the process
         if activ_autoD=="y":
-            thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":None, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q}, daemon=True)
+            thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q}, daemon=True)
             thrd_detect.start()
         
         #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
@@ -939,6 +939,7 @@ class CameraControlView(gb.FrameWidget):
             self.auto_calib_image_GRAY=cv2.cvtColor(auto_calib_image_temp2, cv2.COLOR_BGR2GRAY)
             
             #cv2.imshow("auto calibration image", self.auto_calib_image_GRAY)
+            
 
         #close the video capture and the window
         cv2.destroyAllWindows()
@@ -946,8 +947,18 @@ class CameraControlView(gb.FrameWidget):
         #let the user know calibration is done
         print("Calibration complete")
 
+        return(self.auto_calib_image_GRAY)
+    
+    def run_create_calib_mask(self):
+        self.mask=create_calib_mask(camera_index=self.camera,calib_background=self.auto_calib_image_GRAY)
+        #thrd_mask = multiprocessing.Process(target=create_calib_mask, args=, daemon=True)
+        #thrd_mask.start()
+
 
     def run_full_experiment_process(self):
+        #deactivate the buttons so the user doesn't try to trigger another recording or preview while one is running
+        self.disable_controls()
+
         thrd_record = threading.Thread(target=self.full_experiment_process, daemon=True)
         thrd_record.start()
 
@@ -981,15 +992,8 @@ class CameraControlView(gb.FrameWidget):
         #get the response of the user in the gui about activating the autodetection
         activ_autoD=self.auto_detect.get_input().strip()
         
-
-        
-        #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
-        thrd_record = multiprocessing.Process(target=record_video_cv2,kwargs={"camera":self.camera, "working_folder":folder_path, "name_of_video":video_name, "indiv_name":individual_name,"save_path": None, "save_codec": "DIVX", "auto_detection":activ_autoD, "mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q, "next_card_q":self.next_card_q, "next_loop_q":self.next_loop_q, "q_video":self.q_video}, daemon=True)
-        
-        
         #for each trials
         for i in range(nb_trial_to_run):
-        #for i in range(1):
         
             #clear the queue of signal to display the next stimulus
             while not self.next_card_q.empty():
@@ -999,33 +1003,22 @@ class CameraControlView(gb.FrameWidget):
             while not self.next_loop_q.empty():
                 self.next_loop_q.get_nowait()
 
-            #if the autodetection is wanted, start the process
-            if activ_autoD=="y":
-                thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":None, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q}, daemon=True)
-                thrd_detect.start()
-
             #display the next stimulus
             self.stim.view[1].next_card(do_callback=False)
             self.stim.preview.next_card(do_callback=False)
 
-            #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
-            thrd_record = threading.Thread(target=record_video_cv2,kwargs={"camera":self.camera, "working_folder":folder_path, "name_of_video":video_name, "indiv_name":individual_name, "trial_number": i, "save_codec": "DIVX","full_exp":"y"}, daemon=True)
-            thrd_record.start()
-                
-            #need to figure out how to pass the next card at the right moment... 
-            # maybe start a while loop waiting for a signal passed in a queue from within the recording thread, 
-            # at the correct moment (immidiately after the recording window opens?)
-            """ while(True):
-                # check if signal to display the next stimulus was sent (when the recording started)
-                try:
-                    msg_continue = self.next_card_q.get_nowait()
-                    print(msg_continue)
-                    if msg_continue == "GO!":
-                        break
-                except Empty:
-                    pass """
-            
+            #create a new mask for the new stimulus display
+            self.mask=create_calib_mask(camera_index=self.camera,calib_background=self.auto_calib_image_GRAY)
 
+            #if the autodetection is wanted, start the process
+            if activ_autoD=="y":
+                thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q}, daemon=True)
+                thrd_detect.start()
+
+            #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
+            thrd_record = multiprocessing.Process(target=record_video_cv2,kwargs={"camera":self.camera, "working_folder":folder_path, "name_of_video":video_name, "indiv_name":individual_name, "trial_number": i, "save_codec": "DIVX","full_exp":"y", "auto_detection":activ_autoD, "mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q, "next_card_q":self.next_card_q, "next_loop_q":self.next_loop_q, "q_video":self.q_video}, daemon=True)
+            thrd_record.start()
+            
 
             #Save the card displayed
 
@@ -1042,7 +1035,7 @@ class CameraControlView(gb.FrameWidget):
             
             #check if the stop signal for the full experiment was triggered (if so, the signal to stop the recording should also have been sent and we should arrive here). 
             try:
-                msg = self.q_video.get_nowait()
+                msg = self.stop_full_exp_q.get_nowait()
                 if msg == "stop":
                     break
             except Empty:
