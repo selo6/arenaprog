@@ -306,7 +306,7 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
     # The fps variable which counts the number of frames and divides it by 
     # the duration gives the frames per second which is used to record the video later.
     time_total=time.time() - time_start
-    fps = frames/time_total
+    fps = round(frames/time_total,2)
 
     #pass a stop signal to the movement detector loop, through its dedicated queue
     stop_mov_detec_q.put("stop")
@@ -663,6 +663,7 @@ class CameraControlView(gb.FrameWidget):
         self.stim = StimView(self.parent.parent)
         
 
+
     def play(self):
         # Clear any leftover stop signals
         while not self.q_video.empty():
@@ -979,15 +980,15 @@ class CameraControlView(gb.FrameWidget):
 
         #get the number of trials
         nb_trial_to_run=int(self.stim.nb_trials.get_input().strip())
+        
+        #get calibration done
+        self.auto_calibration()
 
         #open the display window
         self.stim.open_window()
 
         #generate all the cards for the experiment
         self.stim.generate_cards(number_trials=nb_trial_to_run)
-
-        #get calibration done
-        self.auto_calibration()
 
         #get the response of the user in the gui about activating the autodetection
         activ_autoD=self.auto_detect.get_input().strip()
@@ -1040,8 +1041,14 @@ class CameraControlView(gb.FrameWidget):
                     break
             except Empty:
                 pass
+            
+            self.stim.view[1].tk.destroy()
 
             print("trial done, next trial coming up")
+
+        #close the stimulus display window
+        self.stim.view[0].tk.destroy()
+        self.stim.view = None #not sure what this line is for
     
         #when all the trials are done or the experiment has been stopped, print a message to inform the user
         print("Experiment ended")
