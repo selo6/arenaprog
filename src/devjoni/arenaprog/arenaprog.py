@@ -412,33 +412,25 @@ class StimView(gb.FrameWidget):
     def __init__(self, parent):
 
         super().__init__(parent)
-        
-        self.nb_trials_text = gb.TextWidget(self, 'Number of trials to generate:')
-        self.nb_trials_text.grid(row=0, column=0, sticky='WE')
-
-        self.nb_trials = gb.EntryWidget(self)
-        self.nb_trials.set_input('20')
-        self.nb_trials.grid(row=0,column=1)
 
         self.b_open = gb.ButtonWidget(
                 self, 'Open in window',
                 command=self.open_window)
-        self.b_open.grid(row=1, column=0)
+        self.b_open.grid(row=0, column=0)
 
         self.b_change = gb.ButtonWidget(
                 self, 'Change type',
                 command=self.change_type)
-        self.b_change.grid(row=1, column=1)
+        self.b_change.grid(row=0, column=1)
 
         self.b_generate = gb.ButtonWidget(
                 self, 'Generate cards',
                 command=self.generate_cards)
-        self.b_generate.grid(row=2, column=0)
+        self.b_generate.grid(row=1, column=0)
         
         self.preview = CardStimWidget(self, 100, 100)
-        self.preview.grid(row=2, column=1)
+        self.preview.grid(row=1, column=1)
         self.preview.next_card_callback = self.next_card_callback
-
 
 
         self.view = None
@@ -575,56 +567,63 @@ class CameraControlView(gb.FrameWidget):
                 self, text='')
         self.record_details.grid(row=0, column=4)
 
+        self.nb_trials_text = gb.TextWidget(self, 'Number of trials to generate:')
+        self.nb_trials_text.grid(row=1, column=0, sticky='WE')
+
+        self.nb_trials = gb.EntryWidget(self)
+        self.nb_trials.set_input('20')
+        self.nb_trials.grid(row=1,column=1)
+
         self.video_path_text = gb.TextWidget(self, 'Video name:')
-        self.video_path_text.grid(row=1, column=0, sticky='WE')
+        self.video_path_text.grid(row=2, column=0, sticky='WE')
         
         self.filename = gb.EntryWidget(self)
         self.filename.set_input('video.avi')
-        self.filename.grid(row=1,column=1, columnspan=3)
+        self.filename.grid(row=2,column=1, columnspan=3)
 
         self.folder_path_text = gb.TextWidget(self, 'Working folder path:')
-        self.folder_path_text.grid(row=2, column=0, sticky='WE')
+        self.folder_path_text.grid(row=3, column=0, sticky='WE')
         
         self.folderpath = gb.EntryWidget(self)
         self.folderpath.set_input('C:/Experiment/')
-        self.folderpath.grid(row=2,column=1)
+        self.folderpath.grid(row=3,column=1)
 
         self.fly_name_text = gb.TextWidget(self, 'Individual name:')
-        self.fly_name_text.grid(row=3, column=0, sticky='WE')
+        self.fly_name_text.grid(row=4, column=0, sticky='WE')
         
         self.flyname = gb.EntryWidget(self)
         self.flyname.set_input('Fly1')
-        self.flyname.grid(row=3,column=1)
+        self.flyname.grid(row=4,column=1)
 
         self.video_fps_text = gb.TextWidget(self, 'Video display rate (1/N):')
-        self.video_fps_text.grid(row=4, column=0, sticky='WE')
+        self.video_fps_text.grid(row=5, column=0, sticky='WE')
         
         self.fps = gb.EntryWidget(self)
         self.fps.set_input('10')
-        self.fps.grid(row=4,column=1)
+        self.fps.grid(row=5,column=1)
 
         self.auto_detect_text = gb.TextWidget(self, 'Automatic detection (y/n):')
-        self.auto_detect_text.grid(row=4, column=0, sticky='WE')
+        self.auto_detect_text.grid(row=5, column=0, sticky='WE')
 
         self.auto_detect = gb.EntryWidget(self)
         self.auto_detect.set_input('y')
-        self.auto_detect.grid(row=4,column=1)
+        self.auto_detect.grid(row=5,column=1)
 
         self.calibration_btn = gb.ButtonWidget(self, text='Manual Calibration', command=self.calibration)
-        self.calibration_btn.grid(row=6, column=0)
+        self.calibration_btn.grid(row=7, column=0)
 
         self.auto_calibration_btn = gb.ButtonWidget(self, text='Auto Calibration', command=self.auto_calibration)
-        self.auto_calibration_btn.grid(row=6, column=1)
+        self.auto_calibration_btn.grid(row=7, column=1)
 
         self.create_calib_mask_btn = gb.ButtonWidget(self, text='Create Mask', command=self.run_create_calib_mask)
-        self.create_calib_mask_btn.grid(row=6, column=2)
+        self.create_calib_mask_btn.grid(row=7, column=2)
 
         self.full_experiment_btn = gb.ButtonWidget(self, text='Run Experiment', command=self.run_full_experiment_process)
-        self.full_experiment_btn.grid(row=8, column=0, columnspan=3)
+        self.full_experiment_btn.grid(row=9, column=0, columnspan=3)
         self.full_experiment_btn.set(bg='green')
 
         self.stop_full_experiment_btn = gb.ButtonWidget(self, text='Stop Experiment', command=self.stop_full_experiment_process)
-        self.stop_full_experiment_btn.grid(row=9, column=0, columnspan=3)
+        self.stop_full_experiment_btn.grid(row=10, column=0, columnspan=3)
         self.stop_full_experiment_btn.set(bg='red')
 
         #start the queue manager for the multiprocessing
@@ -979,7 +978,7 @@ class CameraControlView(gb.FrameWidget):
         individual_name=self.flyname.get_input().strip() or None
 
         #get the number of trials
-        nb_trial_to_run=int(self.stim.nb_trials.get_input().strip())
+        nb_trial_to_run=int(self.nb_trials.get_input().strip())
         
         #get calibration done
         self.auto_calibration()
@@ -1042,7 +1041,7 @@ class CameraControlView(gb.FrameWidget):
             except Empty:
                 pass
             
-            self.stim.view[1].tk.destroy()
+            #self.stim.view[1].tk.destroy()
 
             print("trial done, next trial coming up")
 
