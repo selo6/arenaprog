@@ -94,9 +94,13 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None):
             
             #cv2.imshow("auto calibration image", auto_calib_image_GRAY)
     else:
-        stimu_for_mask_image_GRAY=image
+        #load the image passed
+        stimu_for_mask_image=image
+
+        #make it gray (should not need to resize or flip as it comes directly from the recording)
+        stimu_for_mask_image_GRAY=cv2.cvtColor(stimu_for_mask_image, cv2.COLOR_BGR2GRAY)
     
-    #check if the background image was given
+    #check if the background image was not given
     if calib_background is None:
         print("Calibration not done")
     else:
@@ -133,7 +137,7 @@ def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_
     A masking needs to be given based on the create_calib_mask definition.
     It also needs a queue to communicate with the other processes (q_video) and one to receive the images to analyse (mov_detec_q)."""
 
-    #set the mean of gray of previous frame as 0 so teh loop doesn't stop at the biginning (when we set a threshold)
+    #set the mean of gray of previous frame as 0 so teh loop doesn't stop at the beginning (when we set a threshold)
     last_mean = 0
 
     #create a frame counter to exclude the first one from triggering the response
@@ -237,7 +241,9 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
 
     #Intiate Video Capture object
     capture = VideoCaptureAsync(src=camera, width=vid_w, height=vid_h)
+    #capture = cv2.VideoCapture(camera)
     
+
     #Intiate codec for Video recording object
     ext = os.path.splitext(save_path)[1].lower()
     if ext == ".avi":
@@ -250,6 +256,10 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
     
     #start video capture
     capture.start()
+
+    """ while not capture.isOpened():
+        print("waiting for capture to start") """
+    
 
     #get the time when the recording starts
     time_start = time.time()
@@ -302,6 +312,7 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
         except Empty:
             pass
     capture.stop()
+    #capture.release()
     cv2.destroyAllWindows()
     # The fps variable which counts the number of frames and divides it by 
     # the duration gives the frames per second which is used to record the video later.
@@ -902,7 +913,6 @@ class CameraControlView(gb.FrameWidget):
         self.stim.view = None #not sure what this line is for
 
         
-        
     #definition to save the coordinates on the video display where the user have clicked during the calibration
     def point_capture(self,event, x, y, flags,params):
         if event == 1:
@@ -1003,22 +1013,44 @@ class CameraControlView(gb.FrameWidget):
             while not self.next_loop_q.empty():
                 self.next_loop_q.get_nowait()
 
-            #display the next stimulus
-            self.stim.view[1].next_card(do_callback=False)
-            self.stim.preview.next_card(do_callback=False)
-
-            #create a new mask for the new stimulus display
-            self.mask=create_calib_mask(camera_index=self.camera,calib_background=self.auto_calib_image_GRAY)
-
-            #if the autodetection is wanted, start the process
-            if activ_autoD=="y":
-                thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q}, daemon=True)
-                thrd_detect.start()
-
+            #reset the filter image to None
+            first_stim_image=None
+        
             #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
             thrd_record = multiprocessing.Process(target=record_video_cv2,kwargs={"camera":self.camera, "working_folder":folder_path, "name_of_video":video_name, "indiv_name":individual_name, "trial_number": i, "save_codec": "DIVX","full_exp":"y", "auto_detection":activ_autoD, "mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q, "next_card_q":self.next_card_q, "next_loop_q":self.next_loop_q, "q_video":self.q_video}, daemon=True)
             thrd_record.start()
+
+            #wait for the end of the recording to moove to the new trial
+            while(True):
+                # check if signal to display the next stimulus was sent (when the recording started)
+                try:
+                    msg_disp_card = self.next_card_q.get_nowait()
+                    if msg_disp_card == "GO!":
+                        break
+                except Empty:
+                    pass
+
+            #display the next stimulus
+            self.stim.view[1].next_card(do_callback=False)
+            self.stim.preview.next_card(do_callback=False)
             
+            #wait for the first image of the recording to generate the filter (need to make sure that the first image is capture shortly after the display of teh stimulus not before)
+            while(first_stim_image is None):
+                try:
+                    #get the first image of the camera (which should have the stimulus displayed, otherwise we may want to put a wait time) to use for creating the filter
+                    first_stim_image = self.mov_detec_q.get_nowait()
+                except Empty:
+                    pass
+
+            #if the autodetection is wanted, start the process
+            if activ_autoD=="y":
+
+                #create a new mask for the new stimulus display
+                self.mask=create_calib_mask(image=first_stim_image, camera_index=self.camera,calib_background=self.auto_calib_image_GRAY)
+
+                #generate the movement detection process and start
+                thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q}, daemon=True)
+                thrd_detect.start()
 
             #Save the card displayed
 
@@ -1284,7 +1316,8 @@ def main():
     window.run()
 
 
+
 if __name__ == "__main__":
     main()
-    
+
     #cProfile.run('main()')
