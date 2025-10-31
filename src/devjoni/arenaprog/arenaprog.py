@@ -132,7 +132,7 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None):
     return mask_clean
 
 
-def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_q=None):
+def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_q=None,next_loop_q=None):
     """function to crop and detect movements in images sent from the recording loop, based on changes in gray levels
     A masking needs to be given based on the create_calib_mask definition.
     It also needs a queue to communicate with the other processes (q_video) and one to receive the images to analyse (mov_detec_q)."""
@@ -164,7 +164,10 @@ def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_
             #cv2.imshow("Masked Frame", masked_frame)
 
             if gray_diff_result>3 and analysed_frame>1: #if the difference between the two frames reach a threshold, we send the signal to stop the recording
-                q_video.put("stop")  ###### This is where we want to trigger rewards etc ########### 
+                
+                next_loop_q.put("reward") #send the signal to trigger the reward
+                time.sleep(1) #wait 1 second
+                q_video.put("stop") #send the signal to stop the recording
 
                 #after doing things we need, we close the camera windows and stop the loop
                 cv2.destroyAllWindows()
@@ -403,7 +406,7 @@ class LightView(gb.FrameWidget):
         state = not state
 
         self.arena.set_led(i_led, state)
-        
+
         if state:
             self.led_buttons[i_led].set(bg='green')
         else:
@@ -557,8 +560,10 @@ class CameraControlView(gb.FrameWidget):
     camera_view : obj or None
         A CameraView Widget to be controlled
     '''
-    def __init__(self, parent, camera_view=None):
+    def __init__(self, parent, arena, camera_view=None):
         super().__init__(parent)
+
+        self.arena = arena
 
         self.camera_view = camera_view
 
@@ -637,6 +642,10 @@ class CameraControlView(gb.FrameWidget):
         self.stop_full_experiment_btn.grid(row=10, column=0, columnspan=3)
         self.stop_full_experiment_btn.set(bg='red')
 
+        self.testing_btn = gb.ButtonWidget(self, text='testing', command=self.test_rewarding)
+        self.testing_btn.grid(row=11, column=0, columnspan=3)
+        self.testing_btn.set(bg='red')
+
         #start the queue manager for the multiprocessing
         manager = multiprocessing.Manager()
 
@@ -671,6 +680,13 @@ class CameraControlView(gb.FrameWidget):
 
         #instenciate the StimView class that is used to generate stimuli (see the class above)
         self.stim = StimView(self.parent.parent)
+
+        #instenciate the LightView class that is used to trigger the reward
+        self.reward_lights=LightView(self.parent,self.arena)
+    
+    def test_rewarding(self):
+
+        self.reward_lights.do_reward()
         
 
 
@@ -1049,19 +1065,22 @@ class CameraControlView(gb.FrameWidget):
                 self.mask=create_calib_mask(image=first_stim_image, camera_index=self.camera,calib_background=self.auto_calib_image_GRAY)
 
                 #generate the movement detection process and start
-                thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q}, daemon=True)
+                thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q}, daemon=True)
                 thrd_detect.start()
 
             #Save the card displayed
 
 
-            #wait for the end of the recording to moove to the new trial
+            #wait for the end of the recording to move to the new trial
             while(True):
-                # check if signal to display the next stimulus was sent (when the recording started)
+                # check if signal to trigger the reward or to move to the next trial was sent (when the recording started)
                 try:
                     msg_next_loop = self.next_loop_q.get_nowait()
                     if msg_next_loop == "GO!":
                         break
+                    elif msg_next_loop == "reward":
+                        self.reward_lights.do_reward() #trigger the reward
+                        time.sleep(1) #wait 1 second
                 except Empty:
                     pass
             
@@ -1232,13 +1251,19 @@ class TotalView(gb.FrameWidget):
     def __init__(self, parent, do_camera=True):
         super().__init__(parent)
 
+
+        try:
+            arena = Arena()
+        except:
+            arena = Arena(fake_serial=True)
+        
         # Camera side
 
         if do_camera:
             camerabox = gb.FrameWidget(self)
             camerabox.grid(row=1, column=1, rowspan=2)
         
-            control = CameraControlView(camerabox)
+            control = CameraControlView(camerabox,arena)
             control.grid(row=0, column=0, sticky='')
 
             #camera = FastCameraView(camerabox)
@@ -1248,10 +1273,7 @@ class TotalView(gb.FrameWidget):
 
         # Motion control side
         
-        try:
-            arena = Arena()
-        except:
-            arena = Arena(fake_serial=True)
+
 
         controlbox = gb.FrameWidget(self)
         controlbox.grid(row=1, column=0)
