@@ -263,6 +263,8 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
     """ while not capture.isOpened():
         print("waiting for capture to start") """
     
+    #start the writer (the saved video will play at 20fps, the real duration of the video will be saved in a text file)
+    out = cv2.VideoWriter(save_path, fourcc, 20, (vid_w,vid_h))
 
     #get the time when the recording starts
     time_start = time.time()
@@ -274,8 +276,9 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
         time_end = time.time() + 3.154e+8
 
     frames = 0
+
     #Create array to hold frames from capture
-    images = []
+    #images = []
 
     #if this recording is part of an automtised full experiment process, send the signal to display (change) the stimulus
     if full_exp=="y":
@@ -284,8 +287,10 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
     # Capture for duration defined by variable 'duration'
     while time.time() <= time_end:
         ret, new_frame = capture.read()
+        frame = cv2.resize(new_frame,(1280,800))
+        frame = cv2.flip(frame,180)
+        #images.append(new_frame)
         frames += 1
-        images.append(new_frame)
         # Create a full screen video display. Comment the following 2 lines if you have a specific dimension 
         # of display window in mind and don't mind the window title bar.
         #cv2.namedWindow('image',cv2.WND_PROP_FULLSCREEN)
@@ -296,8 +301,8 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
             # This project used a Pitft screen and needed to be displayed in fullscreen. 
             # The larger the frame, higher the processing and slower the program.
             # Uncomment the following line if you have a specific display window in mind. 
-            frame = cv2.resize(new_frame,(1280,800))
-            frame = cv2.flip(frame,180)
+            #frame = cv2.resize(new_frame,(1280,800))
+            #frame = cv2.flip(frame,180)
             #if the autodetection is wanted send frames to the process for analyses
             if auto_detection=="y":
                 mov_detec_q.put(frame) #put the frame in the queue for movement detection analysis
@@ -326,19 +331,28 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
     stop_mov_detec_q.put("stop")
 
     print(frames)
-    print(len(images)) 
+    #print(len(images)) 
     print(time_total)
     print(fps)
     # The following line initiates the video object and video file named 'video.avi' 
     # of width and height declared at the beginning.
-    out = cv2.VideoWriter(save_path, fourcc, fps, (vid_w,vid_h))
+    """ out = cv2.VideoWriter(save_path, fourcc, fps, (vid_w,vid_h))
     print("creating video")
     # The loop goes through the array of images and writes each image to the video file
     for img in images:
         if img.shape[1] != vid_w or img.shape[0] != vid_h: #if the image captured is not matching the one passed to the video writer, make it match. 
             img = cv2.resize(img, (vid_w, vid_h))
         out.write(img)
-    images = []
+    images = [] """
+
+    #save the recording informations in a text file
+    with open(str(save_path)+'.txt', 'w') as f:
+        f.write("Number of frames: " + str(frames))
+        f.write('\n')
+        f.write("Fps: " + str(fps))
+        f.write('\n')
+        f.write("Duration (s): " + str(time_total))
+
     print("Done")
 
     if full_exp=="y":
@@ -427,23 +441,30 @@ class StimView(gb.FrameWidget):
 
         super().__init__(parent)
 
+        self.nb_trials_text = gb.TextWidget(self, 'Number of trials:')
+        self.nb_trials_text.grid(row=0, column=0, sticky='WE')
+
+        self.nb_trials = gb.EntryWidget(self)
+        self.nb_trials.set_input('20')
+        self.nb_trials.grid(row=0,column=1)
+
         self.b_open = gb.ButtonWidget(
                 self, 'Open in window',
                 command=self.open_window)
-        self.b_open.grid(row=0, column=0)
+        self.b_open.grid(row=1, column=0)
 
         self.b_change = gb.ButtonWidget(
                 self, 'Change type',
                 command=self.change_type)
-        self.b_change.grid(row=0, column=1)
+        self.b_change.grid(row=1, column=1)
 
         self.b_generate = gb.ButtonWidget(
                 self, 'Generate cards',
                 command=self.generate_cards)
-        self.b_generate.grid(row=1, column=0)
+        self.b_generate.grid(row=2, column=0)
         
         self.preview = CardStimWidget(self, 100, 100)
-        self.preview.grid(row=1, column=1)
+        self.preview.grid(row=2, column=1)
         self.preview.next_card_callback = self.next_card_callback
 
 
@@ -534,8 +555,8 @@ class StimView(gb.FrameWidget):
             toplevel.destroy()
             self.preview.next_card_callback = None
 
-        root = self.get_root()    
-        toplevel = gb.MainWindow(parent=root,fullscreen=False,window_geom="400x400+100+10")
+        root = self.get_root()
+        toplevel = gb.MainWindow(parent=root,fullscreen=False,frameless=True,window_geom="400x400+0+0")
         
         view = CardStimWidget(toplevel, 400, 400, make_nextbutton=False)
         #view.b_next.destroy()
