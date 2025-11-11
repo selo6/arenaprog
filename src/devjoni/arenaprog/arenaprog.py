@@ -137,7 +137,7 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None):
     return mask_clean
 
 
-def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_q=None,next_loop_q=None,time_limit=1,sensitivity=3):
+def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_q=None,next_loop_q=None,time_limit=1,sensitivity=3,auto_reward="n"):
     """function to apply a mask and detect the presence of a new object (e.g. a fly) in images sent from the recording loop, based on changes in gray levels.
     A masking needs to be given based on the create_calib_mask definition.
     It also needs a queue to communicate with the other processes (q_video) and one to receive the images to analyse (mov_detec_q)."""
@@ -176,15 +176,17 @@ def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_
 
                     moment_detect=time.time() #grab the time
                     frame_detect_switch+=1 #switch to 1 to indicate that there is a detection in progress
-                    print("switch ON")
+                    #print("switch ON")
                 if frame_detect_switch==1:
                     print(f"Detection running for {time.time() - moment_detect:.2f}s")
                     diff_time=(time.time() - moment_detect) #compute the duration of the change
 
                     if diff_time>time_limit: #if it is not the first frame, then we check how long the detection lasted and if it is over the limit indicated. If so, we trigger the reward.
 
-                        next_loop_q.put("reward") #send the signal to trigger the reward
-                        time.sleep(1) #wait 1 second
+                        if auto_reward=="y": #if auto reward option is activated
+                            next_loop_q.put("reward") #send the signal to trigger the reward
+                            time.sleep(1) #wait 1 second
+
                         q_video.put("stop") #send the signal to stop the recording
 
                         #after doing things we need, we close the camera windows and stop the loop
@@ -194,7 +196,7 @@ def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_
             else: #if there is no detection in the currect frame set (or reset) the switch to 0
                 #set the switch to 0
                 frame_detect_switch=0
-                print("switch OFF")
+                #print("switch OFF")
 
         #except Exception as e: print(e)
         except: #if the queue was empty, pass
@@ -681,21 +683,28 @@ class CameraControlView(gb.FrameWidget):
         self.detect_duration.set_input('1')
         self.detect_duration.grid(row=7,column=1)
 
+        self.auto_reward_text = gb.TextWidget(self, 'Automatic reward (y/n):')
+        self.auto_reward_text.grid(row=8, column=0, sticky='WE')
+
+        self.auto_reward = gb.EntryWidget(self)
+        self.auto_reward.set_input('y')
+        self.auto_reward.grid(row=8,column=1)
+
         self.calibration_btn = gb.ButtonWidget(self, text='Manual Calibration', command=self.calibration)
-        self.calibration_btn.grid(row=8, column=0)
+        self.calibration_btn.grid(row=9, column=0)
 
         self.auto_calibration_btn = gb.ButtonWidget(self, text='Auto Calibration', command=self.auto_calibration)
-        self.auto_calibration_btn.grid(row=8, column=1)
+        self.auto_calibration_btn.grid(row=9, column=1)
 
         self.create_calib_mask_btn = gb.ButtonWidget(self, text='Create Mask', command=self.run_create_calib_mask)
-        self.create_calib_mask_btn.grid(row=8, column=2)
+        self.create_calib_mask_btn.grid(row=9, column=2)
 
         self.full_experiment_btn = gb.ButtonWidget(self, text='Run Experiment', command=self.run_full_experiment_process)
-        self.full_experiment_btn.grid(row=9, column=0, columnspan=3)
+        self.full_experiment_btn.grid(row=10, column=0, columnspan=3)
         self.full_experiment_btn.set(bg='green')
 
         self.stop_full_experiment_btn = gb.ButtonWidget(self, text='Stop Experiment', command=self.stop_full_experiment_process)
-        self.stop_full_experiment_btn.grid(row=10, column=0, columnspan=3)
+        self.stop_full_experiment_btn.grid(row=11, column=0, columnspan=3)
         self.stop_full_experiment_btn.set(bg='red')
 
         #start the queue manager for the multiprocessing
@@ -765,6 +774,7 @@ class CameraControlView(gb.FrameWidget):
 
         #get the response of the user in the gui about activating the autodetection
         activ_autoD=self.auto_detect.get_input().strip()
+        activ_autoR=self.auto_reward.get_input().strip()
 
         #deactivate the buttons so the user doesn't try to trigger another recording or preview while one is running
         self.disable_controls()
@@ -776,12 +786,16 @@ class CameraControlView(gb.FrameWidget):
             autoD_sensitivity=float(self.sensitivity.get_input().strip())
             autoD_duration=float(self.detect_duration.get_input().strip())
 
-            thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration, "sensitivity":autoD_sensitivity}, daemon=True)
+            thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration, "sensitivity":autoD_sensitivity,"auto_reward":activ_autoR}, daemon=True)
             thrd_detect.start()
         
         #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
         thrd_record = multiprocessing.Process(target=record_video_cv2,kwargs={"camera":self.camera, "working_folder":folder_path, "name_of_video":video_name, "indiv_name":individual_name,"save_path": None, "save_codec": "DIVX", "auto_detection":activ_autoD, "mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q, "next_card_q":self.next_card_q, "next_loop_q":self.next_loop_q, "q_video":self.q_video}, daemon=True)
         thrd_record.start()
+
+        if activ_autoR=="y":
+            thrd_reward = threading.Thread(target=self.check_automatic_reward, daemon=True)
+            thrd_reward.start()
 
 
     def stop(self):
@@ -792,6 +806,20 @@ class CameraControlView(gb.FrameWidget):
 
         #reanable the buttons in the gui
         self.enable_controls()
+
+
+    def check_automatic_reward(self,):
+        #wait for the end of the recording to move to the new trial
+        while(True):
+            # check if signal to trigger the reward or to move to the next trial was sent (when the recording started)
+            try:
+                msg_next_loop = self.next_loop_q.get_nowait()
+                if msg_next_loop == "reward":
+                    print("Doing reward") #inform the user that we trigger the reward
+                    self.reward_lights.do_reward() #trigger the reward
+                    time.sleep(1) #wait 1 second
+            except Empty:
+                pass
 
 
     def stop_full_experiment_process(self):
@@ -1067,8 +1095,9 @@ class CameraControlView(gb.FrameWidget):
         #generate all the cards for the experiment
         self.stim.generate_cards(number_trials=nb_trial_to_run)
 
-        #get the response of the user in the gui about activating the autodetection
+        #get the response of the user in the gui about activating the autodetection and autoreward
         activ_autoD=self.auto_detect.get_input().strip()
+        activ_autoR=self.auto_reward.get_input().strip()
         
         #if the autodetection is wanted
         if activ_autoD=="y":
@@ -1123,7 +1152,7 @@ class CameraControlView(gb.FrameWidget):
                 self.mask=create_calib_mask(image=first_stim_image, camera_index=self.camera,calib_background=self.auto_calib_image_GRAY)
 
                 #generate the movement detection process and start
-                thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration, "sensitivity":autoD_sensitivity}, daemon=True)
+                thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration, "sensitivity":autoD_sensitivity,"auto_reward":activ_autoR}, daemon=True)
                 thrd_detect.start()
 
             #Save the card displayed
@@ -1137,6 +1166,7 @@ class CameraControlView(gb.FrameWidget):
                     if msg_next_loop == "GO!":
                         break
                     elif msg_next_loop == "reward":
+                        print("Doing reward") #inform the user that we trigger the reward
                         self.reward_lights.do_reward() #trigger the reward
                         time.sleep(1) #wait 1 second
                 except Empty:
