@@ -131,6 +131,9 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None):
     #cv2.imshow("calib_mask", mask_clean)
     #print("Mask regions:", len(contours))
 
+    #let the user know that the process is done
+    print("Mask created")
+
     return mask_clean
 
 
@@ -141,9 +144,6 @@ def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_
 
     #set a switch to know when it is a new detection and that we need to take the time
     frame_detect_switch=0
-
-    #create a frame counter to exclude the first one from triggering the response
-    analysed_frame=0
 
     #create a list that contains a fixed maximum number of elements, and that removes the first one if it is appended after its full
     gray_list = deque(maxlen=300)
@@ -160,39 +160,43 @@ def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_
 
             # Compute mean intensity inside the masked region and check how it changed compared to the previous frames. (previous version was directly checking only with the immediate previous frame which did not allow for waiting that the change stays over multiple frames before triggering reward, so the new version below is better)
             roi_mean = cv2.mean(gray, mask=masking)[0] #compute the grey level in the area not masked
+            gray_list.append(roi_mean) #add the current level of gray to the list (in the limit of 300 (see above) with the removal of the first value if there is more than 300 already)
             med_gray=statistics.median(gray_list) #compute the median of the gray levels of the previous frames
             gray_diff_result = abs(roi_mean - med_gray) #compute the difference of the mean levels of grey between this frame and the median of the previous ones
-            print(gray_diff_result) #print the difference (we can set a threshold here, instead to trigger an action)
-            gray_list.append(roi_mean) #add the current level of gray to the list (in the limit of 300 (see above) with the removal of the first value if there is more than 300 already)
+            #print(gray_diff_result) #print the difference (we can set a threshold here, instead to trigger an action)
             
             #to show the image with the mask
             #masked_frame = cv2.bitwise_and(gray, gray, mask=masking)
             #cv2.imshow("Masked Frame", masked_frame)
 
-            if gray_diff_result>sensitivity and analysed_frame>1: #if the difference between the two frames reach a threshold, we send the signal to stop the recording
+            if gray_diff_result>sensitivity: #if the difference between the two frames reach a threshold, we send the signal to stop the recording
                 
                 #if this is the first frame with a detection, we catch the time to use later to compute how long the detection lasts
                 if frame_detect_switch==0:
 
-                    moment_detect=time.time #grab the time
+                    moment_detect=time.time() #grab the time
                     frame_detect_switch+=1 #switch to 1 to indicate that there is a detection in progress
+                    print("switch ON")
+                if frame_detect_switch==1:
+                    print(f"Detection running for {time.time() - moment_detect:.2f}s")
+                    diff_time=(time.time() - moment_detect) #compute the duration of the change
 
-                elif time.time-moment_detect>time_limit: #if it is not the first frame, then we check how long the detection lasted and if it is over the limit indicated. If so, we trigger the reward.
+                    if diff_time>time_limit: #if it is not the first frame, then we check how long the detection lasted and if it is over the limit indicated. If so, we trigger the reward.
 
-                    next_loop_q.put("reward") #send the signal to trigger the reward
-                    time.sleep(1) #wait 1 second
-                    q_video.put("stop") #send the signal to stop the recording
+                        next_loop_q.put("reward") #send the signal to trigger the reward
+                        time.sleep(1) #wait 1 second
+                        q_video.put("stop") #send the signal to stop the recording
 
-                    #after doing things we need, we close the camera windows and stop the loop
-                    cv2.destroyAllWindows()
-                break 
+                        #after doing things we need, we close the camera windows and stop the loop
+                        #cv2.destroyAllWindows()
+                        break   
+
             else: #if there is no detection in the currect frame set (or reset) the switch to 0
                 #set the switch to 0
                 frame_detect_switch=0
+                print("switch OFF")
 
-            #add 1 to the frame counter
-            analysed_frame+=1
-
+        #except Exception as e: print(e)
         except: #if the queue was empty, pass
             pass
             #print("no frame yet")
@@ -762,8 +766,6 @@ class CameraControlView(gb.FrameWidget):
         #get the response of the user in the gui about activating the autodetection
         activ_autoD=self.auto_detect.get_input().strip()
 
-
-
         #deactivate the buttons so the user doesn't try to trigger another recording or preview while one is running
         self.disable_controls()
         
@@ -774,7 +776,7 @@ class CameraControlView(gb.FrameWidget):
             autoD_sensitivity=float(self.sensitivity.get_input().strip())
             autoD_duration=float(self.detect_duration.get_input().strip())
 
-            thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q, "time_limit":autoD_duration, "sensitivity":autoD_sensitivity}, daemon=True)
+            thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration, "sensitivity":autoD_sensitivity}, daemon=True)
             thrd_detect.start()
         
         #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
@@ -1140,6 +1142,10 @@ class CameraControlView(gb.FrameWidget):
                 except Empty:
                     pass
             
+            #stop the display of the current stimulus before the display of teh next one
+            self.stim.preview.current_card.grid_remove()
+            self.stim.view[1].current_card.grid_remove()
+
             #check if the stop signal for the full experiment was triggered (if so, the signal to stop the recording should also have been sent and we should arrive here). 
             try:
                 msg = self.stop_full_exp_q.get_nowait()
