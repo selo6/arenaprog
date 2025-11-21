@@ -127,12 +127,13 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None):
     for c in contours:
         if cv2.contourArea(c) > 100:  # keep only "real" stimuli
             cv2.drawContours(mask_clean, [c], -1, 255, -1)
+            print("Mask found")
 
     #cv2.imshow("calib_mask", mask_clean)
     #print("Mask regions:", len(contours))
 
     #let the user know that the process is done
-    print("Mask created")
+    print("Mask loop ended (check if Mask created is mentionned above)")
 
     return mask_clean
 
@@ -141,6 +142,10 @@ def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_
     """function to apply a mask and detect the presence of a new object (e.g. a fly) in images sent from the recording loop, based on changes in gray levels.
     A masking needs to be given based on the create_calib_mask definition.
     It also needs a queue to communicate with the other processes (q_video) and one to receive the images to analyse (mov_detec_q)."""
+
+    #clear the queue of signal to stop the detection loop
+    while not stop_mov_detec_q.empty():
+        stop_mov_detec_q.get_nowait()
 
     #set a switch to know when it is a new detection and that we need to take the time
     frame_detect_switch=0
