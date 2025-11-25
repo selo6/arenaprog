@@ -132,6 +132,8 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None):
     #cv2.imshow("calib_mask", mask_clean)
     #print("Mask regions:", len(contours))
 
+    cv2.imwrite("C:/Experiment/Mask.jpg", mask_clean)
+
     #let the user know that the process is done
     print("Mask loop ended (check if Mask created is mentionned above)")
 
@@ -534,7 +536,7 @@ class StimView(gb.FrameWidget):
             #self.view[1].next_card(do_callback=False) #muted as we want to be able to do the heavy lifting of generating cards long before to display the first one
         
         #start the chronometer
-        self.parent.start_clock()
+        #self.parent.start_clock()
 
 
     #definition to create place the calibration display in the opened stimulus window
@@ -593,7 +595,6 @@ class StimView(gb.FrameWidget):
 
         self.view = [toplevel, view]
 
-        
      
     def next_card_callback(self):
         if self.view:
@@ -810,6 +811,9 @@ class CameraControlView(gb.FrameWidget):
         #Send a stop signal to the video thread
         self.q_video.put("stop")
 
+        #stop clock if it is running
+        self.parent.parent.stop_clock()
+
         #reanable the buttons in the gui
         self.enable_controls()
 
@@ -833,6 +837,9 @@ class CameraControlView(gb.FrameWidget):
         #trigger a stop for the full experiment loop and to stop the recording 
         self.stop_full_exp_q.put("stop")
         self.q_video.put("stop")
+
+        #stop the clock
+        self.parent.parent.stop_clock()
 
         #reanable the buttons in the gui
         self.enable_controls()
@@ -1142,6 +1149,7 @@ class CameraControlView(gb.FrameWidget):
             #display the next stimulus
             self.stim.view[1].next_card(do_callback=False)
             self.stim.preview.next_card(do_callback=False)
+            self.parent.parent.start_clock()
             
             #wait for the first image of the recording to generate the filter (need to make sure that the first image is capture shortly after the display of teh stimulus not before)
             while(first_stim_image is None):
@@ -1196,7 +1204,7 @@ class CameraControlView(gb.FrameWidget):
 
         #close the stimulus display window
         self.stim.view[0].tk.destroy()
-        self.stim.view = None #not sure what this line is for
+        self.stim.view = None
     
         #when all the trials are done or the experiment has been stopped, print a message to inform the user
         print("Experiment ended")
@@ -1396,20 +1404,30 @@ class TotalView(gb.FrameWidget):
         self.time_widget.grid(row=0, column=0, sticky='WE')
 
     def start_clock(self):
+        if self.clock_running:
+            self.stop_clock()
         self.time = 0
-        if not self.clock_running:
-            self.clock_running = True
-            self.update_clock()
+        self.clock_running = True
+        self.update_clock()
+
 
     def update_clock(self):
         self.time += 0.1
         self.time_widget.set(text=f'{self.time:.2f} seconds')
         if self.clock_running:
             self.after(100, self.update_clock)
-        else:
-            self.stim.preview.current_card.grid_remove()
-            if self.stim.view:
-                self.stim.view[1].current_card.grid_remove()
+        """ else:
+            if self.stim.preview.current_card:
+                try:
+                    self.stim.preview.current_card.grid_remove()
+                except:
+                    pass
+
+            if self.stim.view and self.stim.view[1].current_card:
+                try:
+                    self.stim.view[1].current_card.grid_remove()
+                except:
+                    pass """
             
 
     def stop_clock(self):
