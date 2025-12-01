@@ -8,7 +8,6 @@ import random
 import os
 import numpy as np
 import statistics
-from datetime import datetime
 
 import devjoni.guibase as gb
 from devjoni.hosguibase.video import VideoWidget
@@ -69,7 +68,7 @@ def run_video_preview(camera_index, q_video):
     vc.release()
 
 
-def create_calib_mask(camera_index=None, image=None, calib_background=None, vid_w = 1280, vid_h = 800):
+def create_calib_mask(camera_index=None, image=None, calib_background=None):
     '''Definition to create a mask based on the automatic detection of the location of the stimuli. 
     The mask is used for the movement detector to detect when the fly passes over the stimulus.
     Depening on the method chosen, get a mask to place over the movement detection images 
@@ -77,13 +76,13 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None, vid_
 
     #if no image provided, we get our own from the camera
     if image is None:
-        """ #close the opencv windows that were already open (like if we made a previsualisation one) before to start capturing an image
+        #close the opencv windows that were already open (like if we made a previsualisation one) before to start capturing an image
         cv2.destroyAllWindows()
 
         #open a new video window and get the input from the camera
         #cv2.namedWindow("calib")
         vc = cv2.VideoCapture(camera_index) 
-        
+
         if vc.isOpened(): # try to get the first frame
             rval, stimu_for_mask_image = vc.read()
         else:
@@ -94,18 +93,8 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None, vid_
             stimu_for_mask_image_temp=cv2.resize(stimu_for_mask_image,(1280,800))
             stimu_for_mask_image_temp2 = cv2.flip(stimu_for_mask_image_temp,180)
             stimu_for_mask_image_GRAY=cv2.cvtColor(stimu_for_mask_image_temp2, cv2.COLOR_BGR2GRAY)
-        
             
-            #cv2.imshow("masking image", stimu_for_mask_image_GRAY) """
-
-        vc_mask = VideoCaptureAsync(src=camera_index, width=vid_w, height=vid_h)
-        vc_mask.start()
-        rval, stimu_for_mask_image = vc_mask.read()
-        stimu_for_mask_image_temp=cv2.resize(stimu_for_mask_image,(1280,800))
-        stimu_for_mask_image_temp2 = cv2.flip(stimu_for_mask_image_temp,180)
-        stimu_for_mask_image_GRAY=cv2.cvtColor(stimu_for_mask_image_temp2, cv2.COLOR_BGR2GRAY)
-        vc_mask.stop()
-
+            #cv2.imshow("masking image", stimu_for_mask_image_GRAY)
     else:
         #load the image passed
         stimu_for_mask_image=image
@@ -113,9 +102,9 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None, vid_
         #make it gray (should not need to resize or flip as it comes directly from the recording)
         stimu_for_mask_image_GRAY=cv2.cvtColor(stimu_for_mask_image, cv2.COLOR_BGR2GRAY)
 
-        cv2.imwrite("C:/Experiment/Image_for_mask.jpg", stimu_for_mask_image_GRAY)
+        cv2.imwrite("C:/Experiment/Calib_image.jpg", stimu_for_mask_image_GRAY)
 
-    
+
     #check if the background image was not given
     if calib_background is None:
         print("Calibration not done")
@@ -127,7 +116,7 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None, vid_
     diff = cv2.absdiff(auto_calib_image_GRAY, stimu_for_mask_image_GRAY)
 
     # --- Threshold to extract changed pixels ---
-    _, mask = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
+    _, mask = cv2.threshold(diff, 100, 255, cv2.THRESH_BINARY)
 
     # --- Clean noise ---
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
@@ -150,7 +139,7 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None, vid_
 
     #let the user know that the process is done
     print("Mask loop ended (check if Mask created is mentionned above)")
-    print("Mask done:", datetime.now())
+
     return mask_clean
 
 
@@ -168,8 +157,6 @@ def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_
 
     #create a list that contains a fixed maximum number of elements, and that removes the first one if it is appended after its full
     gray_list = deque(maxlen=300)
-
-    print("Start movement detection:", datetime.now())
 
     while(True):
 
@@ -293,12 +280,6 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
     #capture = cv2.VideoCapture(camera)
     
 
-    #if this recording is part of an automtised full experiment process, send the signal to display (change) the stimulus
-    if full_exp=="y":
-        next_card_q.put("GO!")
-        print("Go:", datetime.now())
-
-
     #Intiate codec for Video recording object
     ext = os.path.splitext(save_path)[1].lower()
     if ext == ".avi":
@@ -314,7 +295,6 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
 
     """ while not capture.isOpened():
         print("waiting for capture to start") """
-
     
     #start the writer (the saved video will play at 20fps, the real duration of the video will be saved in a text file)
     out = cv2.VideoWriter(save_path, fourcc, 20, (vid_w,vid_h))
@@ -333,7 +313,9 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
     #Create array to hold frames from capture
     #images = []
 
-    print("Start sending video:", datetime.now())
+    #if this recording is part of an automtised full experiment process, send the signal to display (change) the stimulus
+    if full_exp=="y":
+        next_card_q.put("GO!")
 
     # Capture for duration defined by variable 'duration'
     while time.time() <= time_end:
@@ -606,8 +588,8 @@ class StimView(gb.FrameWidget):
             self.preview.next_card_callback = None
 
         root = self.get_root()
-        #toplevel = gb.MainWindow(parent=root,fullscreen=False,frameless=True,window_geom="400x400+0+0")
-        toplevel = gb.MainWindow(parent=root,fullscreen=False,frameless=True,window_geom="1280x800+1920+0") #for actual display on the projector
+        toplevel = gb.MainWindow(parent=root,fullscreen=False,frameless=True,window_geom="400x400+0+0")
+        #toplevel = gb.MainWindow(parent=root,fullscreen=False,frameless=True,window_geom="1280x800+1920+0") #for actual display on the projector
 
         
         view = CardStimWidget(toplevel, 400, 400, make_nextbutton=False)
@@ -1049,7 +1031,7 @@ class CameraControlView(gb.FrameWidget):
             self.clicked_point = (x, y)
     
 
-    def auto_calibration(self,vid_w = 1280, vid_h = 800):
+    def auto_calibration(self):
         '''capture the image of the arena with the stimulus display window open but no stimulus displayed 
         to use as comparison with the images collected once stimuli are displayed to auto detect the location of the stimuli'''
 
@@ -1063,33 +1045,26 @@ class CameraControlView(gb.FrameWidget):
         #close the opencv windows that were already open (like if we made a previsualisation one) before to start capturing an image
         cv2.destroyAllWindows()
 
-        """ #open a new video window and get the input from the camera
+        #open a new video window and get the input from the camera
         #cv2.namedWindow("auto calibration image")
-        vc_calib = cv2.VideoCapture(self.camera)
+        vc = cv2.VideoCapture(self.camera) 
 
-        if vc_calib.isOpened(): # try to get the first frame
-            rval, auto_calib_image = vc_calib.read()
+        if vc.isOpened(): # try to get the first frame
+            rval, auto_calib_image = vc.read()
         else:
             rval = False
 
         #if we've got an image, make it the same dimension and rotation than the recording one, make it gray and show it
-        if rval and vc_calib.isOpened():
+        if rval and vc.isOpened():
             auto_calib_image_temp=cv2.resize(auto_calib_image,(1280,800))
             auto_calib_image_temp2 = cv2.flip(auto_calib_image_temp,180)
             self.auto_calib_image_GRAY=cv2.cvtColor(auto_calib_image_temp2, cv2.COLOR_BGR2GRAY)
             
             #cv2.imshow("auto calibration image", self.auto_calib_image_GRAY)
-            cv2.imwrite("C:/Experiment/Calib_image.jpg", self.auto_calib_image_GRAY) """
+            cv2.imwrite("C:/Experiment/Image_for_mask.jpg", self.auto_calib_image_GRAY)
+
             
-        vc_calib = VideoCaptureAsync(src=self.camera, width=vid_w, height=vid_h)
-        vc_calib.start()
-        time.sleep(0.5) #wait for the camera to adjust to the light
-        rval, auto_calib_image = vc_calib.read()
-        auto_calib_image_temp=cv2.resize(auto_calib_image,(1280,800))
-        auto_calib_image_temp2 = cv2.flip(auto_calib_image_temp,180)
-        self.auto_calib_image_GRAY=cv2.cvtColor(auto_calib_image_temp2, cv2.COLOR_BGR2GRAY)
-        cv2.imwrite("C:/Experiment/Calib_image.jpg", self.auto_calib_image_GRAY)
-        vc_calib.stop()
+
         #close the video capture and the window
         cv2.destroyAllWindows()
 
@@ -1166,7 +1141,7 @@ class CameraControlView(gb.FrameWidget):
             thrd_record = multiprocessing.Process(target=record_video_cv2,kwargs={"camera":self.camera, "working_folder":folder_path, "name_of_video":video_name, "indiv_name":individual_name, "trial_number": i, "save_codec": "DIVX","full_exp":"y", "auto_detection":activ_autoD, "mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q, "next_card_q":self.next_card_q, "next_loop_q":self.next_loop_q, "q_video":self.q_video}, daemon=True)
             thrd_record.start()
 
-            #wait for the end of the recording process to start to display the stimulus
+            #wait for the end of the recording to moove to the new trial
             while(True):
                 # check if signal to display the next stimulus was sent (when the recording started)
                 try:
@@ -1179,11 +1154,6 @@ class CameraControlView(gb.FrameWidget):
             #display the next stimulus
             self.stim.view[1].next_card(do_callback=False)
             self.stim.preview.next_card(do_callback=False)
-            print("Stimuli displayed:", datetime.now())
-            #wait for the display window to be updated
-            #self.stim.view[0].tk.update_idletasks()
-            #self.stim.view[0].tk.update()
-
             self.parent.parent.start_clock()
             
             #wait for the first image of the recording to generate the filter (need to make sure that the first image is capture shortly after the display of teh stimulus not before)
