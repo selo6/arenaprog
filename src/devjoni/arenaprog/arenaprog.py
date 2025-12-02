@@ -297,6 +297,7 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
     if full_exp=="y":
         next_card_q.put("GO!")
         print("Go:", datetime.now())
+        time.sleep(0.15) #wait a little as it takes a bit of time to display the stimulus
 
 
     #Intiate codec for Video recording object
@@ -342,7 +343,7 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
         frame = cv2.flip(frame,180)
         #images.append(new_frame)
         out.write(frame)
-        frames += 1
+        
 
         # Here only every 10th frame is shown on the display. Change the preview_rate to a value suitable to the project by passing the value in the function. 
         # The higher the number, the more processing required and the slower it becomes
@@ -356,6 +357,10 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
             if auto_detection=="y":
                 mov_detec_q.put(frame) #put the frame in the queue for movement detection analysis
             cv2.imshow('frame', frame)
+
+        #add 1 to the frame counter
+        frames += 1
+        
         if cv2.waitKey(1) & 0xFF == ord('q'): #press q to stop the process
             break
         #or check that the display window has been manually closed by the user
@@ -368,8 +373,10 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
                 break
         except Empty:
             pass
+
     capture.stop()
     #capture.release()
+
     cv2.destroyAllWindows()
 
     # The fps variable which counts the number of frames and divides it by 
