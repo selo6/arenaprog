@@ -773,6 +773,8 @@ class CameraControlView(gb.FrameWidget):
 
         #create a list to store the calibration coordinates
         self.calib_coord=[]
+        self.calib_display_coords=[]
+
 
         #instenciate the StimView class that is used to generate stimuli (see the class above)
         self.stim = StimView(self.parent.parent)
@@ -902,145 +904,69 @@ class CameraControlView(gb.FrameWidget):
         self.create_calib_mask_btn.set(state="normal") #deactivate the mask button
         self.full_experiment_btn.set(state="normal")
 
-    def calibration(self): 
+    def calibration(self,vid_w = 1280, vid_h = 800): 
         '''This may be used to obtain the pixel location of points on the camera view to match the coordinate system of the projector and the camera.
         At least three points may be necessary (3 for getAffineTransform or 4 for getPerspectiveTransform).
-        This would be used to get the stimulus image and make it a mask over the camera view to detect movement only on the area of the stimulus'''
+        This would be used in experiments with multiple stimuli to get the approximate location of each of them on the video to know which one has changes (in the movement detector)'''
         
-        #set the coordinates for the first calibartion cross
-        calib1_X=200
-        calib1_Y=100
-        
-        #store them in a list
-        self.calib_display_coords=[calib1_X,calib1_Y]
 
-        #open the stimulus window ("stim" is a call of the StimView class that is used to generate stimuli, see above)
-        self.stim.open_window()
+        #set the x and y coordinates for the calibartion cross
+        all_calib_X=[200,100,200]
+        all_calib_Y=[100,200,300]
 
-        #create the calibration display in the opened window
-        self.stim.generate_calib(relat_size=0.2, XX=calib1_X, YY=calib1_Y)
+        for calib_X, calib_Y in zip(all_calib_X, all_calib_Y):
 
-        #force tkinter to wait for the window to be opened and the cross to be drawn (otherwise the video window happens before, the loop waiting for the click starts and the cross is never displayed)
-        self.stim.view[0].tk.update_idletasks()
-        self.stim.view[0].tk.update()
+            #add the coordinates of the displayed crosses to the list
+            self.calib_display_coords.append(calib_X)
+            self.calib_display_coords.append(calib_Y)
 
-        #close the opencv windows that were already open (like if we made a previsualisation one) before to start capturing an image
-        cv2.destroyAllWindows()
+            #open the stimulus window ("stim" is a call of the StimView class that is used to generate stimuli, see above)
+            self.stim.open_window()
 
-        #open a new video window and get the input from the camera
-        cv2.namedWindow("calib")
-        vc = cv2.VideoCapture(self.camera) 
+            #create the calibration display in the opened window
+            self.stim.generate_calib(relat_size=0.2, XX=calib_X, YY=calib_Y)
 
-        if vc.isOpened(): # try to get the first frame
-            rval, calib_1 = vc.read()
-        else:
-            rval = False
+            #force tkinter to wait for the window to be opened and the cross to be drawn (otherwise the video window happens before, the loop waiting for the click starts and the cross is never displayed)
+            self.stim.view[0].tk.update_idletasks()
+            self.stim.view[0].tk.update()
 
-        #if we've got an image, show it
-        if rval and vc.isOpened():
-            cv2.imshow("calib", calib_1)
+            #close the opencv windows that were already open (like if we made a previsualisation one) before to start capturing an image
+            cv2.destroyAllWindows()
 
-        # reset coords so we know when user has clicked
-        self.clicked_point = None
+            #open a new video window and get the input from the camera
+            cv2.namedWindow("calib")
+            vc = VideoCaptureAsync(src=self.camera, width=vid_w, height=vid_h)
+            vc.start()
+            #vc = cv2.VideoCapture(self.camera) #previous ways to do capture
 
-        # bind the callback function to window
-        cv2.setMouseCallback('calib', self.point_capture)
+            #get the first image and reformat it to the correct size
+            rval, calib_temp = vc.read()
+            calib_temp=cv2.resize(calib_temp,(1280,800))
+            calib = cv2.flip(calib_temp,180)
 
-        # Wait until user clicks and that, thus, clicked_point is not empty
-        while self.clicked_point is None:
-            if cv2.waitKey(1) & 0xFF == ord('q'): #we also plan for closing the loop with pressing q
+            #show the image optained
+            cv2.imshow("calib", calib)
+
+            #we close teh capture as we do not need more images
+            vc.stop()
+
+            # reset coords so we know when user has clicked
+            self.clicked_point = None
+
+            # bind the callback function to window
+            cv2.setMouseCallback('calib', self.point_capture)
+
+            # Wait until user clicks and that, thus, clicked_point is not empty
+            while self.clicked_point is None:
+                if cv2.waitKey(1) & 0xFF == ord('q'): #we also plan for closing the loop with pressing q
+                    break
+            
+            # save clicked coords
+            if self.clicked_point is not None:
+                self.calib_coord.extend(self.clicked_point)
+            else:
+                print("No points selected. Calibration not Completed")
                 break
-        
-        # save clicked coords
-        if self.clicked_point is not None:
-            self.calib_coord.extend(self.clicked_point)
-        else:
-            print("Calibration not Completed")
-
-        #######
-        #second calibration cross
-
-        #set the coordinates for the second calibartion cross
-        calib2_X=100
-        calib2_Y=200
-        
-        #store them in a list
-        self.calib_display_coords.append(calib2_X)
-        self.calib_display_coords.append(calib2_Y)
-
-        #create the calibration display in the opened window
-        self.stim.generate_calib(relat_size=0.2, XX=calib2_X, YY=calib2_Y)
-
-        #force tkinter to wait for the window to be opened and the cross to be drawn (otherwise the video window happens before, the loop waiting for the click starts and the cross is never displayed)
-        self.stim.view[0].tk.update_idletasks()
-        self.stim.view[0].tk.update()
-
-        #capture another image from the camera
-        if vc.isOpened(): # try to get the first frame
-            rval, calib_2 = vc.read()
-        else:
-            rval = False
-
-        #if we've got an image, show it
-        if rval and vc.isOpened():
-            cv2.imshow("calib", calib_2)
-
-        # reset coords so we know when user has clicked
-        self.clicked_point = None
-
-        # Wait until user clicks and that, thus, clicked_point is not empty
-        while self.clicked_point is None:
-            if cv2.waitKey(1) & 0xFF == ord('q'): #we also plan for closing the loop with pressing q
-                break
-        
-        # save clicked coords
-        if self.clicked_point is not None:
-            self.calib_coord.extend(self.clicked_point)
-        else:
-            print("Calibration not Completed")
-
-
-        #######
-        #third calibration cross
-
-        #set the coordinates for the third calibartion cross
-        calib3_X=200
-        calib3_Y=300
-        
-        #store them in a list
-        self.calib_display_coords.append(calib3_X)
-        self.calib_display_coords.append(calib3_Y)
-
-        #create the calibration display in the opened window
-        self.stim.generate_calib(relat_size=0.2, XX=calib3_X, YY=calib3_Y)
-
-        #force tkinter to wait for the window to be opened and the cross to be drawn (otherwise the video window happens before, the loop waiting for the click starts and the cross is never displayed)
-        self.stim.view[0].tk.update_idletasks()
-        self.stim.view[0].tk.update()
-
-        #capture another image from the camera
-        if vc.isOpened(): # try to get the first frame
-            rval, calib_3 = vc.read()
-        else:
-            rval = False
-
-        #if we've got an image, show it
-        if rval and vc.isOpened():
-            cv2.imshow("calib", calib_3)
-
-        # reset coords so we know when user has clicked
-        self.clicked_point = None
-
-        # Wait until user clicks and that, thus, clicked_point is not empty
-        while self.clicked_point is None:
-            if cv2.waitKey(1) & 0xFF == ord('q'): #we also plan for closing the loop with pressing q
-                break
-        
-        # save clicked coords
-        if self.clicked_point is not None:
-            self.calib_coord.extend(self.clicked_point)
-        else:
-            print("Calibration not Completed")
 
         #close the camera window
         cv2.destroyAllWindows()
@@ -1048,6 +974,10 @@ class CameraControlView(gb.FrameWidget):
         #close the stimulus display window
         self.stim.view[0].tk.destroy()
         self.stim.view = None #not sure what this line is for
+
+        print("Calibration done!")
+        print("coordinates displayed: ",self.calib_display_coords)
+        print("coordinates obtained: ",self.calib_coord)
 
         
     #definition to save the coordinates on the video display where the user have clicked during the calibration
