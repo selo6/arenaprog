@@ -1090,7 +1090,7 @@ class CameraControlView(gb.FrameWidget):
             
         vc_calib = VideoCaptureAsync(src=self.camera, width=vid_w, height=vid_h)
         vc_calib.start()
-        time.sleep(0.5) #wait for the camera to adjust to the light
+        #time.sleep(0.5) #wait for the camera to adjust to the light
         rval, auto_calib_image = vc_calib.read()
         auto_calib_image_temp=cv2.resize(auto_calib_image,(1280,800))
         auto_calib_image_temp2 = cv2.flip(auto_calib_image_temp,180)
@@ -1102,6 +1102,10 @@ class CameraControlView(gb.FrameWidget):
 
         #let the user know calibration is done
         print("Calibration complete")
+
+        #Close the calibration window
+        self.stim.view[0].tk.destroy()
+        self.stim.view = None
 
         return(self.auto_calib_image_GRAY)
     
