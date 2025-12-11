@@ -104,6 +104,7 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None, vid_
         stimu_for_mask_image_temp=cv2.resize(stimu_for_mask_image,(1280,800))
         stimu_for_mask_image_temp2 = cv2.flip(stimu_for_mask_image_temp,180)
         stimu_for_mask_image_GRAY=cv2.cvtColor(stimu_for_mask_image_temp2, cv2.COLOR_BGR2GRAY)
+        cv2.imwrite("C:/Experiment/Image_for_mask.jpg", stimu_for_mask_image_GRAY)
         vc_mask.stop()
 
     else:
@@ -154,10 +155,97 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None, vid_
     return mask_clean
 
 
+def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_detec_q=None,stop_mov_detec_q=None,next_loop_q=None,time_limit=1,auto_reward="n"):
+    """Movement detection only in the area of the stimuli that allows for the determining of which of the stimuli the fly choose in a multiple stimuli experiment. It compares the first frame with the stimuli displayed with teh current frame (both covered with the same mask that keeps only the stimuli area visible)
+    to locate where the image changed over the stimuli. In the case of multiple stimuli, this should allow for getting the location of the area that change to see if it is close to the centre of mass of which stimulus."""
+
+    #stop the definition if there is no mask passed
+    if masking is None or stimulus_image is None:
+        print("Please generate a mask and a stimulus image first") 
+        return None
+
+    #clear the queue of signal to stop the detection loop
+    while not stop_mov_detec_q.empty():
+        stop_mov_detec_q.get_nowait()
+
+    #create the stimulus image masked
+    stimulus_masked = cv2.bitwise_and(stimulus_image,stimulus_image,mask = masking)
+
+    #set a switch to know when it is a new detection and that we need to take the time
+    frame_detect_switch=0
+
+    print("Start movement detection:", datetime.now())
+
+    while(True):
+
+        try:
+            curent_analyse_frame=mov_detec_q.get_nowait() #check if there is a frame available in the queue
+            current_frame_gray = cv2.cvtColor(curent_analyse_frame, cv2.COLOR_BGR2GRAY) #convert image to grey levels
+
+            #put the mask over the current frame
+            current_frame_masked = cv2.bitwise_and(current_frame_gray,current_frame_gray,mask = masking)
+
+            # --- Absolute difference with the frame of the stimulus frame with the mask ---
+            diff_stimu = cv2.absdiff(stimulus_masked, current_frame_masked)
+
+            # --- Threshold to extract changed pixels ---
+            _, changed_pix = cv2.threshold(diff_stimu, 25, 255, cv2.THRESH_BINARY)
+
+            # --- Clean noise ---
+            kernel_image = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
+            changed_pix = cv2.morphologyEx(changed_pix, cv2.MORPH_OPEN, kernel_image)   # remove specks
+            changed_pix = cv2.morphologyEx(changed_pix, cv2.MORPH_CLOSE, kernel_image)  # close small gaps
+
+            # --- Optional: keep only large enough regions ---
+            # useful if projector or camera adds random flicker
+            contours_changes, _ = cv2.findContours(changed_pix, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for c_2 in contours_changes:
+                if cv2.contourArea(c_2) < 50 & cv2.contourArea(c_2) > 3:  # keep only "real" stimuli
+
+                    print("Movement detected on stimulus")
+
+                    #if this is the first frame with a detection, we catch the time to use later to compute how long the detection lasts
+                    if frame_detect_switch==0:
+
+                        moment_detect=time.time() #grab the time
+                        frame_detect_switch+=1 #switch to 1 to indicate that there is a detection in progress
+                        #print("switch ON")
+                    if frame_detect_switch==1:
+                        print(f"Detection running for {time.time() - moment_detect:.2f}s")
+                        diff_time=(time.time() - moment_detect) #compute the duration of the change
+
+                        if diff_time>time_limit: #if it is not the first frame, then we check how long the detection lasted and if it is over the limit indicated. If so, we trigger the reward.
+
+                            if auto_reward=="y": #if auto reward option is activated
+                                next_loop_q.put("reward") #send the signal to trigger the reward
+                                time.sleep(1) #wait 1 second
+
+                            q_video.put("stop") #send the signal to stop the recording
+
+                            #after doing things we need, we close the camera windows and stop the loop
+                            #cv2.destroyAllWindows()
+                            break   
+
+                else: #if there is no detection in the currect frame set (or reset) the switch to 0
+                    #set the switch to 0
+                    frame_detect_switch=0
+                    #print("switch OFF")
+
+        except: #if the queue was empty, pass
+            pass
+            #print("no frame yet")
+            
+
+
 def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_q=None,next_loop_q=None,time_limit=1,sensitivity=3,auto_reward="n"):
     """function to apply a mask and detect the presence of a new object (e.g. a fly) in images sent from the recording loop, based on changes in gray levels.
     A masking needs to be given based on the create_calib_mask definition.
     It also needs a queue to communicate with the other processes (q_video) and one to receive the images to analyse (mov_detec_q)."""
+
+    #stop the definition if there is no mask passed
+    if masking is None:
+        print("Please generate a mask first") 
+        return None
 
     #clear the queue of signal to stop the detection loop
     while not stop_mov_detec_q.empty():
@@ -177,9 +265,7 @@ def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_
             analyse_frame=mov_detec_q.get_nowait() #check if there is a frame available in the queue
             gray = cv2.cvtColor(analyse_frame, cv2.COLOR_BGR2GRAY) #convert image to grey levels
             
-            if masking is None:
-                print("Please generate a mask first") 
-                break
+            
 
             # Compute mean intensity inside the masked region and check how it changed compared to the previous frames. (previous version was directly checking only with the immediate previous frame which did not allow for waiting that the change stays over multiple frames before triggering reward, so the new version below is better)
             roi_mean = cv2.mean(gray, mask=masking)[0] #compute the grey level in the area not masked
@@ -293,13 +379,6 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
     #capture = cv2.VideoCapture(camera)
     
 
-    #if this recording is part of an automtised full experiment process, send the signal to display (change) the stimulus
-    if full_exp=="y":
-        next_card_q.put("GO!")
-        print("Go:", datetime.now())
-        time.sleep(0.15) #wait a little as it takes a bit of time to display the stimulus
-
-
     #Intiate codec for Video recording object
     ext = os.path.splitext(save_path)[1].lower()
     if ext == ".avi":
@@ -319,6 +398,22 @@ def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_
     
     #start the writer (the saved video will play at 20fps, the real duration of the video will be saved in a text file)
     out = cv2.VideoWriter(save_path, fourcc, 20, (vid_w,vid_h))
+
+    #if this recording is part of an automtised full experiment process, send the signal to display (change) the stimulus and wait for the signal to start recording
+    if full_exp=="y":
+        next_card_q.put("GO!")
+        print("Go:", datetime.now())
+
+        #wait to receive a signal to start recording
+        while(True):
+            #check if teh signal to start recording is sent
+            try:
+                msg_start_record = next_card_q.get_nowait()
+                if msg_start_record == "Record!":
+                    time.sleep(0.15) #Wait a bit as the refresh rate of the projector may create a dilay in the display of the stimulus
+                    break
+            except Empty:
+                pass
 
     #get the time when the recording starts
     time_start = time.time()
@@ -911,17 +1006,25 @@ class CameraControlView(gb.FrameWidget):
         
 
         #set the x and y coordinates for the calibartion cross
-        all_calib_X=[200,100,200]
-        all_calib_Y=[100,200,300]
+        all_calib_X=[200,100,200,150,300]
+        all_calib_Y=[100,200,300,150,300]
+
+        #close the opencv windows that were already open (like if we made a previsualisation one) before to start capturing an image
+        cv2.destroyAllWindows()
+
+        #open the stimulus window ("stim" is a call of the StimView class that is used to generate stimuli, see above)
+        self.stim.open_window()
+
+        #start the video capture process and get the input from the camera
+        vc = VideoCaptureAsync(src=self.camera, width=vid_w, height=vid_h)
+        vc.start()
+        #vc = cv2.VideoCapture(self.camera) #previous ways to do capture
+
 
         for calib_X, calib_Y in zip(all_calib_X, all_calib_Y):
 
             #add the coordinates of the displayed crosses to the list
-            self.calib_display_coords.append(calib_X)
-            self.calib_display_coords.append(calib_Y)
-
-            #open the stimulus window ("stim" is a call of the StimView class that is used to generate stimuli, see above)
-            self.stim.open_window()
+            self.calib_display_coords.append([calib_X,calib_Y])
 
             #create the calibration display in the opened window
             self.stim.generate_calib(relat_size=0.2, XX=calib_X, YY=calib_Y)
@@ -930,14 +1033,8 @@ class CameraControlView(gb.FrameWidget):
             self.stim.view[0].tk.update_idletasks()
             self.stim.view[0].tk.update()
 
-            #close the opencv windows that were already open (like if we made a previsualisation one) before to start capturing an image
-            cv2.destroyAllWindows()
-
-            #open a new video window and get the input from the camera
-            cv2.namedWindow("calib")
-            vc = VideoCaptureAsync(src=self.camera, width=vid_w, height=vid_h)
-            vc.start()
-            #vc = cv2.VideoCapture(self.camera) #previous ways to do capture
+            #wait to make sure the cross is displayed
+            time.sleep(0.5)
 
             #get the first image and reformat it to the correct size
             rval, calib_temp = vc.read()
@@ -946,9 +1043,6 @@ class CameraControlView(gb.FrameWidget):
 
             #show the image optained
             cv2.imshow("calib", calib)
-
-            #we close teh capture as we do not need more images
-            vc.stop()
 
             # reset coords so we know when user has clicked
             self.clicked_point = None
@@ -963,18 +1057,28 @@ class CameraControlView(gb.FrameWidget):
             
             # save clicked coords
             if self.clicked_point is not None:
-                self.calib_coord.extend(self.clicked_point)
+                self.calib_coord.extend([self.clicked_point])
             else:
                 print("No points selected. Calibration not Completed")
+                #close the camera window
+                cv2.destroyAllWindows()
                 break
 
-        #close the camera window
-        cv2.destroyAllWindows()
+            #close the camera window
+            cv2.destroyAllWindows()
+
+        
+        #we close the capture as we do not need more images
+        vc.stop()
 
         #close the stimulus display window
         self.stim.view[0].tk.destroy()
         self.stim.view = None #not sure what this line is for
 
+        # Calculate Homography
+        h, status = cv2.findHomography(np.array(self.calib_display_coords), np.array(self.calib_coord))
+        
+        print(h)
         print("Calibration done!")
         print("coordinates displayed: ",self.calib_display_coords)
         print("coordinates obtained: ",self.calib_coord)
@@ -1122,11 +1226,15 @@ class CameraControlView(gb.FrameWidget):
             self.stim.preview.next_card(do_callback=False)
             print("Stimuli displayed:", datetime.now())
             #wait for the display window to be updated
-            #self.stim.view[0].tk.update_idletasks()
-            #self.stim.view[0].tk.update()
+            self.stim.view[0].tk.update_idletasks()
+            self.stim.view[0].tk.update()
 
+            #start the clock
             self.parent.parent.start_clock()
             
+            #send the signal to start recording
+            self.next_card_q.put("Record!")
+
             #wait for the first image of the recording to generate the filter (need to make sure that the first image is capture shortly after the display of teh stimulus not before)
             while(first_stim_image is None):
                 try:

@@ -10,7 +10,6 @@ Use somthing else for high-framerate moving stimuli or long videos.
 '''
 import math
 import random
-import numpy as np
 
 from PIL import Image, ImageDraw
 
@@ -91,27 +90,15 @@ def create_centraldot_images(r_rel, width=CARD_WIDTH, height=CARD_HEIGHT,
     images = []
 
     setseed(seed)
-
-    #create a fake dot centre at the corner of the drawing window to use for the first distance comparison of the first dot location
-    cp=[0,0]
     
     for i in range(nb_card):
         image = Image.new('RGB', (width, height))
         ctx = ImageDraw.Draw(image)
         
         R = int(r_rel*min(width, height)/2)
-        cp_temp = [int((width-R*2)*random.random()+R),
+        cp = [int((width-R*2)*random.random()+R),
               int((height-R*2)*random.random()+R)]
         
-        #as long as the centre of the centre of the new dot is less than 8 times the radius of the dot from the centre of the previous dot, 
-        # we recompute a new centre (np.linalg.norm between two points give teh euclidean distance)
-        while np.linalg.norm(np.array(cp_temp) - np.array(cp))<8*R: 
-            cp_temp = [int((width-R*2)*random.random()+R),
-              int((height-R*2)*random.random()+R)]
-            
-        #once we have found a good new centre, we save it as cp
-        cp=cp_temp
-
         ctx.circle(cp, R, fill=(255,255,255))
         images.append(image)
 
@@ -217,78 +204,6 @@ def create_multipie_images(N, M, right='1010', width=CARD_WIDTH, height=CARD_HEI
     return images
 
 
-def create_dotVSsquare_images(r_rel, width=CARD_WIDTH, height=CARD_HEIGHT,
-                             seed=None,nb_card=10):
-    '''
-    Used to make images with both a circle and a square. It also returns the coordinates of each (to be matched to the pixels of the camera for the movement detector)
-    r_rel : float
-        Radius relative to the smallest image dimension, width or height
-    '''
-
-    images = []
-    circle_coord=[]
-    square_coord=[]
-
-    setseed(seed)
-
-    #create  fake dot centre at the corner of the drawing window to use for the first distance comparison of the first dot location
-    cp_circle=[0,0]
-    cp_square=[400,400]
-
-    
-    for i in range(nb_card):
-        image = Image.new('RGB', (width, height))
-        ctx = ImageDraw.Draw(image)
-        
-        #save the previous central point of the circle (we will change it in a moment but we still need it)
-        cp_circle_previous=cp_circle
-
-        #compute the radius of the circle and the corresponding side of the square to make them the same area
-        R = int(r_rel*min(width, height)/2) #circle radius length
-        S = int(np.sqrt(np.pi)*R) #square side length
-
-        #compute a central point for the circle
-        cp_circle_temp = [int((width-R*2)*random.random()+R),
-              int((height-R*2)*random.random()+R)] 
-        
-        #as long as the centre of the centre of the new dot is less than 8 times the radius of the dot from the centre of the previous dot, 
-        # we recompute a new centre (np.linalg.norm between two points give teh euclidean distance)
-        while np.linalg.norm(np.array(cp_circle_temp) - np.array(cp_circle))<8*R: 
-            cp_circle_temp = [int((width-R*2)*random.random()+R),
-              int((height-R*2)*random.random()+R)]
-            
-        #once we have found a good new centre, we save it as cp
-        cp_circle=cp_circle_temp
-
-        #we now compute a centre point for the square
-        cp_square_temp = [int((width-S*2)*random.random()+S),
-              int((height-S*2)*random.random()+S)]
-
-        #as long as the centre of the square is not a certain distance away from the current circle, but also from the previous circle position and the previous square position, we pick up another point
-        while np.linalg.norm(np.array(cp_square_temp) - np.array(cp_circle))<5*R or np.linalg.norm(np.array(cp_square_temp) - np.array(cp_circle_previous))<8*R or np.linalg.norm(np.array(cp_square_temp) - np.array(cp_square))<8*R:
-            cp_square_temp = [int((width-S*2)*random.random()+S),
-              int((height-S*2)*random.random()+S)]
-            
-        #once we have found a good point, we save it
-        cp_square=cp_square_temp
-
-        #we now compute the 2 opposite corners of the square from the centre
-        square_corners=[cp_square-S/2,cp_square-S/2,cp_square+S/2,cp_square+S/2,]
-
-        #save the coordinates of the circle and the square
-        circle_coord.append(cp_circle)
-        square_coord.append(cp_square)
-
-        #draw the final shapes
-        ctx.circle(cp_circle, R, fill=(255,255,255))
-        ctx.rectangle(square_corners, fill=(255,255,255))
-        images.append(image)
-
-    setseed(None)
-
-    return images, circle_coord, square_coord
-
-
 def create_calibcross_images(r_rel, xx, yy, width=CARD_WIDTH, height=CARD_HEIGHT):
     '''
     definition used to create crosses at specific coordinates for the user to click on during the camera/mask calibration.
@@ -362,8 +277,6 @@ class CardStimWidget(gb.FrameWidget):
             self.create_centraldot_cards,
             self.create_onepie_cards,
             self.create_multipie_cards,
-            self.create_dotVSsquare_dot_rewarded_cards,
-            self.create_dotVSsquare_square_rewarded_cards,
             #self.create_stripe_cards,
             ]
 
@@ -443,8 +356,6 @@ class CardStimWidget(gb.FrameWidget):
             self.create_card(image)
         self.current_card = None
 
-        self.stimucoord_list="list testing"
-
 
     def create_onepie_cards(self, N=4, seed=None, nb_card=10):
         '''Change to onepie cards
@@ -480,45 +391,6 @@ class CardStimWidget(gb.FrameWidget):
             self.create_card(image)
 
         self.current_card = None
-    
-
-    def create_dotVSsquare_dot_rewarded_cards(self, seed=None,nb_card=10):
-        '''Create cards that show one central dot
-        '''
-        self.clear_cards()
-
-        images, circle_stimu_coords, square_stimu_coords = create_centraldot_images(
-                r_rel=0.1, width=self.width, height=self.height,
-                seed=seed, nb_card=nb_card
-                )
-
-        for image in images:
-            self.create_card(image)
-        self.current_card = None
-
-        #put the coordinates in the right or wrong variable
-        self.right_stimu_coords=circle_stimu_coords
-        self.wrong_stimu_coords=square_stimu_coords
-
-
-    def create_dotVSsquare_square_rewarded_cards(self, seed=None,nb_card=10):
-        '''Create cards that show one central dot
-        '''
-        self.clear_cards()
-
-        images, circle_stimu_coords, square_stimu_coords = create_centraldot_images(
-                r_rel=0.1, width=self.width, height=self.height,
-                seed=seed, nb_card=nb_card
-                )
-
-        for image in images:
-            self.create_card(image)
-        self.current_card = None
-
-        #put the coordinates in the right or wrong variable
-        self.right_stimu_coords=square_stimu_coords
-        self.wrong_stimu_coords=circle_stimu_coords
-
 
     #create the definition to generate the card of the calibration crosses
     def create_calibcross_cards(self,relat_size=0.1, XX=100, YY=100):
