@@ -273,7 +273,7 @@ def create_dotVSsquare_images(r_rel, width=CARD_WIDTH, height=CARD_HEIGHT,
         cp_square=cp_square_temp
 
         #we now compute the 2 opposite corners of the square from the centre
-        square_corners=[cp_square-S/2,cp_square-S/2,cp_square+S/2,cp_square+S/2,]
+        square_corners=[cp_square[0]-S/2,cp_square[1]-S/2,cp_square[0]+S/2,cp_square[1]+S/2,]
 
         #save the coordinates of the circle and the square
         circle_coord.append(cp_circle)
@@ -448,12 +448,13 @@ class CardStimWidget(gb.FrameWidget):
 
     def create_onepie_cards(self, N=4, seed=None, nb_card=10):
         '''Change to onepie cards
+            the nb_cards argument is not used as there are only 6 possibe cards, currently.
         '''
         self.clear_cards()
 
         images = create_onepie_images(
                 N, width=self.width, height=self.height,
-                seed=seed,nb_card=nb_card)
+                seed=seed)
         for image in images:
             self.create_card(image)
         self.current_card = None
@@ -487,7 +488,7 @@ class CardStimWidget(gb.FrameWidget):
         '''
         self.clear_cards()
 
-        images, circle_stimu_coords, square_stimu_coords = create_centraldot_images(
+        images, circle_stimu_coords, square_stimu_coords = create_dotVSsquare_images(
                 r_rel=0.1, width=self.width, height=self.height,
                 seed=seed, nb_card=nb_card
                 )
@@ -506,7 +507,7 @@ class CardStimWidget(gb.FrameWidget):
         '''
         self.clear_cards()
 
-        images, circle_stimu_coords, square_stimu_coords = create_centraldot_images(
+        images, circle_stimu_coords, square_stimu_coords = create_dotVSsquare_images(
                 r_rel=0.1, width=self.width, height=self.height,
                 seed=seed, nb_card=nb_card
                 )

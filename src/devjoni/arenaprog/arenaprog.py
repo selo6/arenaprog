@@ -39,6 +39,13 @@ from .version import __version__
 
 IMAGE_UPDATE_INTERVAL = 10 # ms
 
+def apply_homography(pt, H):
+    """Used to convert points coordinates from the stimulus window coordinate system to the video camera coordinate system. 
+    The user need to use the manual calibration first."""
+    x, y = pt
+    vec = np.array([x, y, 1.0])
+    x_, y_, w_ = H @ vec
+    return x_ / w_, y_ / w_
 
 def run_video_preview(camera_index, q_video):
     """A definition that will be used to display the camera images as preview (not recording, just displaying).
@@ -155,7 +162,7 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None, vid_
     return mask_clean
 
 
-def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_detec_q=None,stop_mov_detec_q=None,next_loop_q=None,time_limit=1,auto_reward="n"):
+def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_detec_q=None,stop_mov_detec_q=None,next_loop_q=None,time_limit=1,auto_reward="n",right_stimu_coord=None,wrong_stimu_coord=None):
     """Movement detection only in the area of the stimuli that allows for the determining of which of the stimuli the fly choose in a multiple stimuli experiment. It compares the first frame with the stimuli displayed with teh current frame (both covered with the same mask that keeps only the stimuli area visible)
     to locate where the image changed over the stimuli. In the case of multiple stimuli, this should allow for getting the location of the area that change to see if it is close to the centre of mass of which stimulus."""
 
@@ -196,40 +203,54 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
             changed_pix = cv2.morphologyEx(changed_pix, cv2.MORPH_OPEN, kernel_image)   # remove specks
             changed_pix = cv2.morphologyEx(changed_pix, cv2.MORPH_CLOSE, kernel_image)  # close small gaps
 
-            # --- Optional: keep only large enough regions ---
+            # --- check size of each region and keept only the ones of apporpriate size---
             # useful if projector or camera adds random flicker
             contours_changes, _ = cv2.findContours(changed_pix, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            list_contour_kept=[]
             for c_2 in contours_changes:
                 if cv2.contourArea(c_2) < 50 & cv2.contourArea(c_2) > 3:  # keep only "real" stimuli
+                    list_contour_kept.append(c_2)
 
-                    print("Movement detected on stimulus")
+            if len(list_contour_kept)==1: #if we detected only one object, we consider it is the fly and that it is a valid detection
 
-                    #if this is the first frame with a detection, we catch the time to use later to compute how long the detection lasts
-                    if frame_detect_switch==0:
+                print("Movement detected on stimulus")
 
-                        moment_detect=time.time() #grab the time
-                        frame_detect_switch+=1 #switch to 1 to indicate that there is a detection in progress
-                        #print("switch ON")
-                    if frame_detect_switch==1:
-                        print(f"Detection running for {time.time() - moment_detect:.2f}s")
-                        diff_time=(time.time() - moment_detect) #compute the duration of the change
+                #if this is the first frame with a detection, we catch the time to use later to compute how long the detection lasts
+                if frame_detect_switch==0:
 
-                        if diff_time>time_limit: #if it is not the first frame, then we check how long the detection lasted and if it is over the limit indicated. If so, we trigger the reward.
+                    moment_detect=time.time() #grab the time
+                    frame_detect_switch+=1 #switch to 1 to indicate that there is a detection in progress
+                    #print("switch ON")
+                if frame_detect_switch==1:
+                    print(f"Detection running for {time.time() - moment_detect:.2f}s")
+                    diff_time=(time.time() - moment_detect) #compute the duration of the change
 
-                            if auto_reward=="y": #if auto reward option is activated
-                                next_loop_q.put("reward") #send the signal to trigger the reward
-                                time.sleep(1) #wait 1 second
+                    if diff_time>time_limit: #if it is not the first frame, then we check how long the detection lasted and if it is over the limit indicated. If so, we trigger the reward.
 
-                            q_video.put("stop") #send the signal to stop the recording
+                        #compute the centre of the object detected
+                        M = cv2.moments(list_contour_kept[0])
+                        cX = int(M["m10"] / M["m00"])
+                        cY = int(M["m01"] / M["m00"])
 
-                            #after doing things we need, we close the camera windows and stop the loop
-                            #cv2.destroyAllWindows()
-                            break   
+                        object_coords=[cX,cY]
 
-                else: #if there is no detection in the currect frame set (or reset) the switch to 0
-                    #set the switch to 0
-                    frame_detect_switch=0
-                    #print("switch OFF")
+                        if auto_reward=="y" and np.linalg.norm(np.array(object_coords) - np.array(right_stimu_coord)) < np.linalg.norm(np.array(object_coords) - np.array(wrong_stimu_coord)): #if auto reward option is activated and the object is closer to the right stimulus centre than the wrong stimulus one, we give the reward
+                            next_loop_q.put("reward") #send the signal to trigger the reward
+                            time.sleep(1) #wait 1 second
+
+                        q_video.put("stop") #send the signal to stop the recording
+
+                        #after doing things we need, we close the camera windows and stop the loop
+                        #cv2.destroyAllWindows()
+                        break   
+            elif len(list_contour_kept)==0:  #if there is no detection in the currect frame, set (or reset) the switch to 0
+                #set the switch to 0
+                frame_detect_switch=0
+                #print("switch OFF")
+            else: #if there is more than one object detected, we consider that there is a problem. We set the switch to 0 and tell the user
+                #set the switch to 0
+                frame_detect_switch=0
+                print("Multiple object detected. Check the issue (size of detected objects, bugs, etc)")
 
         except: #if the queue was empty, pass
             pass
@@ -708,8 +729,8 @@ class StimView(gb.FrameWidget):
             self.preview.next_card_callback = None
 
         root = self.get_root()
-        #toplevel = gb.MainWindow(parent=root,fullscreen=False,frameless=True,window_geom="400x400+0+0")
-        toplevel = gb.MainWindow(parent=root,fullscreen=False,frameless=True,window_geom="1280x800+1920+0") #for actual display on the projector
+        toplevel = gb.MainWindow(parent=root,fullscreen=False,frameless=True,window_geom="400x400+0+0")
+        #toplevel = gb.MainWindow(parent=root,fullscreen=False,frameless=True,window_geom="1280x800+1920+0") #for actual display on the projector
 
         
         view = CardStimWidget(toplevel, 400, 400, make_nextbutton=False)
@@ -734,12 +755,14 @@ class CameraControlView(gb.FrameWidget):
     camera_view : obj or None
         A CameraView Widget to be controlled
     '''
-    def __init__(self, parent, arena, camera_view=None):
+    def __init__(self, parent, arena,stim, camera_view=None):
         super().__init__(parent)
 
         self.arena = arena
 
         self.camera_view = camera_view
+
+        self.stim= stim
 
         self.play_btn = gb.ButtonWidget(self, text='Play', command=self.play)
         self.play_btn.grid(row=0, column=0)
@@ -837,6 +860,9 @@ class CameraControlView(gb.FrameWidget):
         self.stop_full_experiment_btn.grid(row=11, column=0, columnspan=3)
         self.stop_full_experiment_btn.set(bg='red')
 
+        self.trying_btn = gb.ButtonWidget(self, text='Trying stuff', command=self.trying_stuff)
+        self.trying_btn.grid(row=12, column=0, columnspan=3)
+
         #start the queue manager for the multiprocessing
         manager = multiprocessing.Manager()
 
@@ -870,13 +896,14 @@ class CameraControlView(gb.FrameWidget):
         self.calib_coord=[]
         self.calib_display_coords=[]
 
-
-        #instenciate the StimView class that is used to generate stimuli (see the class above)
-        self.stim = StimView(self.parent.parent)
-
         #instenciate the LightView class that is used to trigger the reward
         self.reward_lights=LightView(self.parent,self.arena)
     
+    def trying_stuff(self):
+        index = self.stim.view[1].cards.index(self.stim.view[1].current_card)
+        print(index)
+        print(self.stim.active_type)
+        print(self.stim.right_stimu_coords)
 
     def play(self):
         # Clear any leftover stop signals
@@ -911,16 +938,39 @@ class CameraControlView(gb.FrameWidget):
         #deactivate the buttons so the user doesn't try to trigger another recording or preview while one is running
         self.disable_controls()
         
-        #if the autodetection is wanted, start the process
-        if activ_autoD=="y":
+        #if the autodetection is wanted and its a single stimulus experiment, start the process
+        if activ_autoD=="y" and self.stim.active_type<3:
 
             #get the response of the user in the gui about the sensitivity to changes in the movement detector and the duration of changes before triggering the reward
             autoD_sensitivity=float(self.sensitivity.get_input().strip())
             autoD_duration=float(self.detect_duration.get_input().strip())
 
+            #start the tracking process
             thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration, "sensitivity":autoD_sensitivity,"auto_reward":activ_autoR}, daemon=True)
             thrd_detect.start()
         
+        #if the autodetection is wanted and its an experiment with more than one stumulus, start the process
+        if activ_autoD=="y" and self.stim.active_type>=3:
+            
+            #get the index of the card currently displayed
+            index = self.stim.view[1].cards.index(self.stim.view[1].current_card)
+            coord_position_x=index*2
+            coord_position_y=index*2+1
+
+            #get the coordinates of the correct and incorrect stimuli
+            right_coords_orig=self.stim.right_stimu_coords[coord_position_x,coord_position_y]
+            wrong_coords_orig=self.stim.wrong_stimu_coords[coord_position_x,coord_position_y]
+
+            #convert the coordinates to approximate the corresponding pixels on the video using the original coordinates and the homography matrix obtained with the manual calibration
+            right_x_convert, right_y_convert=apply_homography(right_coords_orig,self.h)
+            right_coord_convert=[right_x_convert,right_y_convert]
+            wrong_x_convert, wrong_y_convert=apply_homography(wrong_coords_orig,self.h)
+            wrong_coord_convert=[wrong_x_convert,wrong_y_convert]
+
+            #start the tracking process
+            thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration, "sensitivity":autoD_sensitivity,"auto_reward":activ_autoR,"right_stimu_coord":right_coord_convert,"wrong_stimu_coord":wrong_coord_convert}, daemon=True)
+            thrd_detect.start()
+
         #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
         thrd_record = multiprocessing.Process(target=record_video_cv2,kwargs={"camera":self.camera, "working_folder":folder_path, "name_of_video":video_name, "indiv_name":individual_name,"save_path": None, "save_codec": "DIVX", "auto_detection":activ_autoD, "mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q, "next_card_q":self.next_card_q, "next_loop_q":self.next_loop_q, "q_video":self.q_video}, daemon=True)
         thrd_record.start()
@@ -1076,7 +1126,7 @@ class CameraControlView(gb.FrameWidget):
         self.stim.view = None #not sure what this line is for
 
         # Calculate Homography
-        h, status = cv2.findHomography(np.array(self.calib_display_coords), np.array(self.calib_coord))
+        self.h, status = cv2.findHomography(np.array(self.calib_display_coords), np.array(self.calib_coord))
         
         print(h)
         print("Calibration done!")
@@ -1447,23 +1497,7 @@ class TotalView(gb.FrameWidget):
         except:
             arena = Arena(fake_serial=True)
         
-        # Camera side
-
-        if do_camera:
-            camerabox = gb.FrameWidget(self)
-            camerabox.grid(row=1, column=1, rowspan=2)
-        
-            control = CameraControlView(camerabox,arena)
-            control.grid(row=0, column=0, sticky='')
-
-            #camera = FastCameraView(camerabox)
-            #camera.grid(row=1, column=0)
-
-            #control.camera_view = camera
-
         # Motion control side
-        
-
 
         controlbox = gb.FrameWidget(self)
         controlbox.grid(row=1, column=0)
@@ -1482,6 +1516,20 @@ class TotalView(gb.FrameWidget):
             stim.grid(row=1, column=1)
         self.stim = stim
     
+        # Camera side
+        if do_camera:
+            camerabox = gb.FrameWidget(self)
+            camerabox.grid(row=1, column=1, rowspan=2)
+        
+            control = CameraControlView(camerabox,arena,stim)
+            control.grid(row=0, column=0, sticky='')
+
+            #camera = FastCameraView(camerabox)
+            #camera.grid(row=1, column=0)
+
+            #control.camera_view = camera
+
+
         self.time = 0
         self.clock_running=False
         self.time_widget = gb.TextWidget(self, 'Time (s)')
