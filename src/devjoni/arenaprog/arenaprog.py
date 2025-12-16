@@ -1300,7 +1300,7 @@ class CameraControlView(gb.FrameWidget):
             if activ_autoD=="y":
 
                 #create a new mask for the new stimulus display
-                self.mask=create_calib_mask(image=first_stim_image, camera_index=self.camera,calib_background=self.auto_calib_image_GRAY)
+                self.mask,self.first_stim_image=create_calib_mask(image=first_stim_image, camera_index=self.camera,calib_background=self.auto_calib_image_GRAY)
 
                 if self.stim.active_type<3:
             
