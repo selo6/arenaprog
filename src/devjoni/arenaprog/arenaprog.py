@@ -159,7 +159,7 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None, vid_
     #let the user know that the process is done
     print("Mask loop ended (check if Mask created is mentionned above)")
     print("Mask done:", datetime.now())
-    return mask_clean
+    return mask_clean, stimu_for_mask_image #we return the mask and the image used to make it as we need it sometimes in other processes
 
 
 def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_detec_q=None,stop_mov_detec_q=None,next_loop_q=None,time_limit=1,auto_reward="n",right_stimu_coord=None,wrong_stimu_coord=None):
@@ -860,8 +860,8 @@ class CameraControlView(gb.FrameWidget):
         self.stop_full_experiment_btn.grid(row=11, column=0, columnspan=3)
         self.stop_full_experiment_btn.set(bg='red')
 
-        self.trying_btn = gb.ButtonWidget(self, text='Trying stuff', command=self.trying_stuff)
-        self.trying_btn.grid(row=12, column=0, columnspan=3)
+        """ self.trying_btn = gb.ButtonWidget(self, text='Trying stuff', command=self.trying_stuff)
+        self.trying_btn.grid(row=12, column=0, columnspan=3) """
 
         #start the queue manager for the multiprocessing
         manager = multiprocessing.Manager()
@@ -899,11 +899,11 @@ class CameraControlView(gb.FrameWidget):
         #instenciate the LightView class that is used to trigger the reward
         self.reward_lights=LightView(self.parent,self.arena)
     
-    def trying_stuff(self):
+    """ def trying_stuff(self):
         index = self.stim.view[1].cards.index(self.stim.view[1].current_card)
         print(index)
         print(self.stim.active_type)
-        print(self.stim.right_stimu_coords)
+        print(self.stim.view[1].right_stimu_coords) """
 
     def play(self):
         # Clear any leftover stop signals
@@ -951,15 +951,16 @@ class CameraControlView(gb.FrameWidget):
         
         #if the autodetection is wanted and its an experiment with more than one stumulus, start the process
         if activ_autoD=="y" and self.stim.active_type>=3:
+
+            #get the response of the user in the gui about the sensitivity to changes in the movement detector and the duration of changes before triggering the reward
+            autoD_duration=float(self.detect_duration.get_input().strip())
             
             #get the index of the card currently displayed
             index = self.stim.view[1].cards.index(self.stim.view[1].current_card)
-            coord_position_x=index*2
-            coord_position_y=index*2+1
 
             #get the coordinates of the correct and incorrect stimuli
-            right_coords_orig=self.stim.right_stimu_coords[coord_position_x,coord_position_y]
-            wrong_coords_orig=self.stim.wrong_stimu_coords[coord_position_x,coord_position_y]
+            right_coords_orig=self.stim.view[1].right_stimu_coords[index]
+            wrong_coords_orig=self.stim.view[1].wrong_stimu_coords[index]
 
             #convert the coordinates to approximate the corresponding pixels on the video using the original coordinates and the homography matrix obtained with the manual calibration
             right_x_convert, right_y_convert=apply_homography(right_coords_orig,self.h)
@@ -968,7 +969,7 @@ class CameraControlView(gb.FrameWidget):
             wrong_coord_convert=[wrong_x_convert,wrong_y_convert]
 
             #start the tracking process
-            thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration, "sensitivity":autoD_sensitivity,"auto_reward":activ_autoR,"right_stimu_coord":right_coord_convert,"wrong_stimu_coord":wrong_coord_convert}, daemon=True)
+            thrd_detect = multiprocessing.Process(target=movement_detect_flexi,kwargs={"masking":self.mask, "stimulus_image":self.image_for_making_mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration,"auto_reward":activ_autoR,"right_stimu_coord":right_coord_convert,"wrong_stimu_coord":wrong_coord_convert}, daemon=True)
             thrd_detect.start()
 
         #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
@@ -1104,6 +1105,8 @@ class CameraControlView(gb.FrameWidget):
             while self.clicked_point is None:
                 if cv2.waitKey(1) & 0xFF == ord('q'): #we also plan for closing the loop with pressing q
                     break
+                if cv2.getWindowProperty('calib',cv2.WND_PROP_VISIBLE) < 1:
+                    break
             
             # save clicked coords
             if self.clicked_point is not None:
@@ -1128,7 +1131,7 @@ class CameraControlView(gb.FrameWidget):
         # Calculate Homography
         self.h, status = cv2.findHomography(np.array(self.calib_display_coords), np.array(self.calib_coord))
         
-        print(h)
+        print(self.h)
         print("Calibration done!")
         print("coordinates displayed: ",self.calib_display_coords)
         print("coordinates obtained: ",self.calib_coord)
@@ -1194,7 +1197,7 @@ class CameraControlView(gb.FrameWidget):
         return(self.auto_calib_image_GRAY)
     
     def run_create_calib_mask(self):
-        self.mask=create_calib_mask(camera_index=self.camera,calib_background=self.auto_calib_image_GRAY)
+        self.mask, self.image_for_making_mask=create_calib_mask(camera_index=self.camera,calib_background=self.auto_calib_image_GRAY)
         #thrd_mask = multiprocessing.Process(target=create_calib_mask, args=, daemon=True)
         #thrd_mask.start()
 
@@ -1293,15 +1296,37 @@ class CameraControlView(gb.FrameWidget):
                 except Empty:
                     pass
 
-            #if the autodetection is wanted, start the process
+            #if the autodetection is wanted and it is a single stimulus experiment, start the process
             if activ_autoD=="y":
 
                 #create a new mask for the new stimulus display
                 self.mask=create_calib_mask(image=first_stim_image, camera_index=self.camera,calib_background=self.auto_calib_image_GRAY)
 
-                #generate the movement detection process and start
-                thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration, "sensitivity":autoD_sensitivity,"auto_reward":activ_autoR}, daemon=True)
-                thrd_detect.start()
+                if self.stim.active_type<3:
+            
+                    #generate the movement detection process and start
+                    thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration, "sensitivity":autoD_sensitivity,"auto_reward":activ_autoR}, daemon=True)
+                    thrd_detect.start()
+
+                #if the autodetection is wanted and its an experiment with more than one stumulus, start the process
+                if self.stim.active_type>=3:
+   
+                    #get the index of the card currently displayed
+                    index = self.stim.view[1].cards.index(self.stim.view[1].current_card)
+
+                    #get the coordinates of the correct and incorrect stimuli
+                    right_coords_orig=self.stim.right_stimu_coords[index]
+                    wrong_coords_orig=self.stim.wrong_stimu_coords[index]
+
+                    #convert the coordinates to approximate the corresponding pixels on the video using the original coordinates and the homography matrix obtained with the manual calibration
+                    right_x_convert, right_y_convert=apply_homography(right_coords_orig,self.h)
+                    right_coord_convert=[right_x_convert,right_y_convert]
+                    wrong_x_convert, wrong_y_convert=apply_homography(wrong_coords_orig,self.h)
+                    wrong_coord_convert=[wrong_x_convert,wrong_y_convert]
+
+                    #start the tracking process
+                    thrd_detect = multiprocessing.Process(target=movement_detect_flexi,kwargs={"masking":self.mask, "stimulus_image":first_stim_image, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration,"auto_reward":activ_autoR,"right_stimu_coord":right_coord_convert,"wrong_stimu_coord":wrong_coord_convert}, daemon=True)
+                    thrd_detect.start()
 
             #Save the card displayed
 
