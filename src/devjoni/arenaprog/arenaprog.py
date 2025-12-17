@@ -177,9 +177,15 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
 
     #convert the stimulus image to grey
     stimulus_gray=cv2.cvtColor(stimulus_image, cv2.COLOR_BGR2GRAY)
+    
 
     #create the stimulus image masked
     stimulus_masked = cv2.bitwise_and(stimulus_gray,stimulus_gray,mask = masking)
+    cv2.imwrite("C:/Experiment/Mask applied on stimulus image.jpg", stimulus_masked)
+
+    #TO TEST HOW THE FILTERING WORKS WITHIN THE MASK (should be all black if no fly present... try to put a dark object in the stimulus area and see if the object become the only white area)
+    _, Testing_filtering = cv2.threshold(stimulus_masked, 10, 255, cv2.THRESH_BINARY_INV)
+    cv2.imwrite("C:/Experiment/Masked stimulus image with inverse filtering.jpg", stimulus_masked)
 
     #set a switch to know when it is a new detection and that we need to take the time
     frame_detect_switch=0
@@ -199,7 +205,8 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
             diff_stimu = cv2.absdiff(stimulus_masked, current_frame_masked)
 
             # --- Threshold to extract changed pixels ---
-            _, changed_pix = cv2.threshold(diff_stimu, 25, 255, cv2.THRESH_BINARY)
+            #_, changed_pix = cv2.threshold(diff_stimu, 25, 255, cv2.THRESH_BINARY)
+            _, changed_pix = cv2.threshold(diff_stimu, 10, 255, cv2.THRESH_BINARY_INV)
 
             # --- Clean noise ---
             kernel_image = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
