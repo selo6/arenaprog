@@ -175,8 +175,11 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
     while not stop_mov_detec_q.empty():
         stop_mov_detec_q.get_nowait()
 
+    #convert the stimulus image to grey
+    stimulus_gray=cv2.cvtColor(stimulus_image, cv2.COLOR_BGR2GRAY)
+
     #create the stimulus image masked
-    stimulus_masked = cv2.bitwise_and(stimulus_image,stimulus_image,mask = masking)
+    stimulus_masked = cv2.bitwise_and(stimulus_gray,stimulus_gray,mask = masking)
 
     #set a switch to know when it is a new detection and that we need to take the time
     frame_detect_switch=0
@@ -208,8 +211,10 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
             contours_changes, _ = cv2.findContours(changed_pix, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             list_contour_kept=[]
             for c_2 in contours_changes:
-                if cv2.contourArea(c_2) < 50 & cv2.contourArea(c_2) > 3:  # keep only "real" stimuli
+                print("Contour size: ", cv2.contourArea(c_2))
+                if cv2.contourArea(c_2) < 50 and cv2.contourArea(c_2) > 3:  # keep only "real" stimuli
                     list_contour_kept.append(c_2)
+            print("number of object detected: ", len(list_contour_kept))
 
             if len(list_contour_kept)==1: #if we detected only one object, we consider it is the fly and that it is a valid detection
 
