@@ -107,10 +107,10 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None, vid_
 
         vc_mask = VideoCaptureAsync(src=camera_index, width=vid_w, height=vid_h)
         vc_mask.start()
-        rval, stimu_for_mask_image = vc_mask.read()
-        stimu_for_mask_image_temp=cv2.resize(stimu_for_mask_image,(1280,800))
-        stimu_for_mask_image_temp2 = cv2.flip(stimu_for_mask_image_temp,180)
-        stimu_for_mask_image_GRAY=cv2.cvtColor(stimu_for_mask_image_temp2, cv2.COLOR_BGR2GRAY)
+        rval, stimu_for_mask_image_temp = vc_mask.read()
+        stimu_for_mask_image_temp2=cv2.resize(stimu_for_mask_image_temp,(1280,800))
+        stimu_for_mask_image = cv2.flip(stimu_for_mask_image_temp2,180)
+        stimu_for_mask_image_GRAY=cv2.cvtColor(stimu_for_mask_image, cv2.COLOR_BGR2GRAY)
         cv2.imwrite("C:/Experiment/Image_for_mask.jpg", stimu_for_mask_image_GRAY)
         vc_mask.stop()
 
@@ -120,10 +120,10 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None, vid_
 
         #make it gray (should not need to resize or flip as it comes directly from the recording)
         stimu_for_mask_image_GRAY=cv2.cvtColor(stimu_for_mask_image, cv2.COLOR_BGR2GRAY)
-
-        cv2.imwrite("C:/Experiment/Image_for_mask.jpg", stimu_for_mask_image_GRAY)
-
     
+    #save the image used for making the mask
+    cv2.imwrite("C:/Experiment/Image_for_mask.jpg", stimu_for_mask_image_GRAY)
+
     #check if the background image was not given
     if calib_background is None:
         print("Calibration not done")
@@ -178,14 +178,9 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
     #convert the stimulus image to grey
     stimulus_gray=cv2.cvtColor(stimulus_image, cv2.COLOR_BGR2GRAY)
     
-
     #create the stimulus image masked
     stimulus_masked = cv2.bitwise_and(stimulus_gray,stimulus_gray,mask = masking)
     cv2.imwrite("C:/Experiment/Mask applied on stimulus image.jpg", stimulus_masked)
-
-    #TO TEST HOW THE FILTERING WORKS WITHIN THE MASK (should be all black if no fly present... try to put a dark object in the stimulus area and see if the object become the only white area)
-    _, Testing_filtering = cv2.threshold(stimulus_masked, 10, 255, cv2.THRESH_BINARY_INV)
-    cv2.imwrite("C:/Experiment/Masked stimulus image with inverse filtering.jpg", stimulus_masked)
 
     #set a switch to know when it is a new detection and that we need to take the time
     frame_detect_switch=0
@@ -205,21 +200,22 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
             diff_stimu = cv2.absdiff(stimulus_masked, current_frame_masked)
 
             # --- Threshold to extract changed pixels ---
-            #_, changed_pix = cv2.threshold(diff_stimu, 25, 255, cv2.THRESH_BINARY)
-            _, changed_pix = cv2.threshold(diff_stimu, 10, 255, cv2.THRESH_BINARY_INV)
+            _, changed_pix = cv2.threshold(diff_stimu, 50, 255, cv2.THRESH_BINARY)
+            
 
             # --- Clean noise ---
             kernel_image = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
             changed_pix = cv2.morphologyEx(changed_pix, cv2.MORPH_OPEN, kernel_image)   # remove specks
             changed_pix = cv2.morphologyEx(changed_pix, cv2.MORPH_CLOSE, kernel_image)  # close small gaps
-
+            cv2.imwrite("C:/Experiment/Current frame analysed.jpg", changed_pix)
+            
             # --- check size of each region and keept only the ones of apporpriate size---
             # useful if projector or camera adds random flicker
             contours_changes, _ = cv2.findContours(changed_pix, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             list_contour_kept=[]
             for c_2 in contours_changes:
                 print("Contour size: ", cv2.contourArea(c_2))
-                if cv2.contourArea(c_2) < 50 and cv2.contourArea(c_2) > 3:  # keep only "real" stimuli
+                if cv2.contourArea(c_2) < 300 and cv2.contourArea(c_2) > 5:  # keep only "real" stimuli
                     list_contour_kept.append(c_2)
             print("number of object detected: ", len(list_contour_kept))
 
@@ -267,6 +263,18 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
         except: #if the queue was empty, pass
             pass
             #print("no frame yet")
+
+        #to stop the loop, user can push the q key
+        if (cv2.waitKey(1) & 0xFF == ord('q')):
+            break
+
+        # Or check if stop was requested by clicking the stop button
+        try:
+            msg_mov = stop_mov_detec_q.get_nowait()
+            if msg_mov == "stop":
+                break
+        except Empty:
+            pass
             
 
 
@@ -1327,8 +1335,8 @@ class CameraControlView(gb.FrameWidget):
                     index = self.stim.view[1].cards.index(self.stim.view[1].current_card)
 
                     #get the coordinates of the correct and incorrect stimuli
-                    right_coords_orig=self.stim.right_stimu_coords[index]
-                    wrong_coords_orig=self.stim.wrong_stimu_coords[index]
+                    right_coords_orig=self.stim.view[1].right_stimu_coords[index]
+                    wrong_coords_orig=self.stim.view[1].wrong_stimu_coords[index]
 
                     #convert the coordinates to approximate the corresponding pixels on the video using the original coordinates and the homography matrix obtained with the manual calibration
                     right_x_convert, right_y_convert=apply_homography(right_coords_orig,self.h)
