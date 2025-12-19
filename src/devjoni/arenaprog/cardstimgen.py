@@ -275,9 +275,9 @@ def create_dotVSsquare_images(r_rel, width=CARD_WIDTH, height=CARD_HEIGHT,
         #we now compute the 2 opposite corners of the square from the centre
         square_corners=[cp_square[0]-S/2,cp_square[1]-S/2,cp_square[0]+S/2,cp_square[1]+S/2,]
 
-        #save the coordinates of the circle and the square
-        circle_coord.append(cp_circle)
-        square_coord.append(cp_square)
+        #save the coordinates of the circle and the square (we put it between [] because it is needed to mark the limits of the coordinates of all stimuli within one trial, see structure needed for movement_detect_flexi in arenaprog)
+        circle_coord.append([cp_circle])
+        square_coord.append([cp_square])
 
         #draw the final shapes
         ctx.circle(cp_circle, R, fill=(255,255,255))
@@ -498,8 +498,8 @@ class CardStimWidget(gb.FrameWidget):
         self.current_card = None
 
         #put the coordinates in the right or wrong variable
-        self.right_stimu_coords=circle_stimu_coords
-        self.wrong_stimu_coords=square_stimu_coords
+        self.right_stimu_coords=[circle_stimu_coords]
+        self.wrong_stimu_coords=[square_stimu_coords]
 
 
     def create_dotVSsquare_square_rewarded_cards(self, seed=None,nb_card=10):
@@ -517,8 +517,8 @@ class CardStimWidget(gb.FrameWidget):
         self.current_card = None
 
         #put the coordinates in the right or wrong variable
-        self.right_stimu_coords=square_stimu_coords
-        self.wrong_stimu_coords=circle_stimu_coords
+        self.right_stimu_coords=[square_stimu_coords]
+        self.wrong_stimu_coords=[circle_stimu_coords]
 
 
     #create the definition to generate the card of the calibration crosses

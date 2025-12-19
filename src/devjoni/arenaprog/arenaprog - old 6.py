@@ -168,9 +168,7 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
     time_limit --> The duration during which the object needs to be detected to trigger the reaction (reward and/or stopping the trial).
     sensitivity --> Threshold of luminosity difference between the object for detection and the background of the stimulus.
     mini_size --> minimum size (without unit) to be considered as a detected object.
-    maxi_size --> maximum size (without unit) to be considered as a detected object.
-    right_stimu_coord --> coordinates of the correct stimulus the fly should visit. It could be several pairs of coordinates if the fly needs to visit a sequence of stimuli within the same trial. The structure should be [[X1,Y1],[X2,Y2]].
-    wrong_stimu_coord --> coordinates of all the wrong stimuli. It could be several pairs of coordinates if there are several wrong stimuli within the trial. It could also include the right stimulus too within the wrong one (therefore it could include all the stimuli of the trial). The structure should be [[X1,Y1],[X2,Y2]]."""
+    maxi_size --> maximum size (without unit) to be considered as a detected object."""
 
     #stop the definition if there is no mask passed
     if masking is None or stimulus_image is None:
@@ -187,9 +185,6 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
     #create the stimulus image masked
     stimulus_masked = cv2.bitwise_and(stimulus_gray,stimulus_gray,mask = masking)
     cv2.imwrite("C:/Experiment/Mask applied on stimulus image.jpg", stimulus_masked)
-
-    #In case of experiment with sequential visits to multipe stimuli within the same trial, there can be multiple right stimulus coordinate pairs given. So we get a counter for the one currently treated
-    current_right_coords_index=0
 
     #set a switch to know when it is a new detection and that we need to take the time
     frame_detect_switch=0
@@ -249,8 +244,6 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
                             if wrong_stimu_coord is None: #if the user wants the reward and the experiment is with a single stimulus (there is no wrong coordinate because there is no wrong stimulus), we send the reward
                                 next_loop_q.put("reward") #send the signal to trigger the reward
                                 time.sleep(1) #wait 1 second
-                                q_video.put("stop") #send the signal to stop the recording
-                                break #stop the loop
 
                             else:#if there are several stimuli, we need to check which one was visited
 
@@ -258,38 +251,16 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
                                 M = cv2.moments(list_contour_kept[0])
                                 cX = int(M["m10"] / M["m00"])
                                 cY = int(M["m01"] / M["m00"])
+
                                 object_coords=[cX,cY]
 
-                                #compute the distance of the detected object from the correct stimulus
-                                dist_to_right=np.linalg.norm(np.array(object_coords) - np.array(right_stimu_coord[current_right_coords_index]))
-
-                                #compute the distance between the object and every other stimuli (the right one could be included or not, it works in anycase)
-                                list_wrong_dists=[]
-                                
-                                for a_wrong_coord in wrong_stimu_coord:
-                                    list_wrong_dists.append(np.linalg.norm(np.array(object_coords) - np.array(a_wrong_coord)))
-
-                                #get the minimum distance from every other stimuli (including the right one or not) 
-                                min_wrong_dist=min(list_wrong_dists)
-
-                                #if the distance from the correct stimulus is inferior or equal to the distance from every other stimuli (including the right one or not), this is a correct choice and we send the message to the reward process to do a reward
-
-                                if dist_to_right<= min_wrong_dist: #if auto reward option is activated and the object is closer to the right stimulus centre than the wrong stimulus one, we give the reward
-                                    
+                                if np.linalg.norm(np.array(object_coords) - np.array(right_stimu_coord)) < np.linalg.norm(np.array(object_coords) - np.array(wrong_stimu_coord)): #if auto reward option is activated and the object is closer to the right stimulus centre than the wrong stimulus one, we give the reward
                                     next_loop_q.put("reward") #send the signal to trigger the reward
-                                    time.sleep(1) #wait 1 second for the reward duration (maybe increase it if we want to give time to the fly to get out of this stimulus)
+                                    time.sleep(1) #wait 1 second
 
-                                    #check if this was the last correct stimulus the fly had to visit in this trial or if there are more. If it is the last one, we stop the trial.
-                                    if len(right_stimu_coord)==current_right_coords_index+1:
-                                        q_video.put("stop") #send the signal to stop the recording
-                                        break #stop the loop
-                                    else: #if there are more stimuli the fly hs to visit next, we add 1 to the index of the right coordinate to treat 
-                                        current_right_coords_index+=1
+                        q_video.put("stop") #send the signal to stop the recording
 
-                                else: #if the fly chose the wrong stimulus, we stop the trial
-                                    q_video.put("stop") #send the signal to stop the recording
-                                    break #stop the loop
-   
+                        break #stop the loop
 
             elif len(list_contour_kept)==0:  #if there is no detection in the currect frame, set (or reset) the switch to 0
                 #set the switch to 0
@@ -927,15 +898,15 @@ class CameraControlView(gb.FrameWidget):
         self.create_calib_mask_btn.grid(row=11, column=2)
 
         self.full_experiment_btn = gb.ButtonWidget(self, text='Run Experiment', command=self.run_full_experiment_process)
-        self.full_experiment_btn.grid(row=12, column=0, columnspan=3)
+        self.full_experiment_btn.grid(row=11, column=0, columnspan=3)
         self.full_experiment_btn.set(bg='green')
 
         self.stop_full_experiment_btn = gb.ButtonWidget(self, text='Stop Experiment', command=self.stop_full_experiment_process)
-        self.stop_full_experiment_btn.grid(row=13, column=0, columnspan=3)
+        self.stop_full_experiment_btn.grid(row=12, column=0, columnspan=3)
         self.stop_full_experiment_btn.set(bg='red')
 
         """ self.trying_btn = gb.ButtonWidget(self, text='Trying stuff', command=self.trying_stuff)
-        self.trying_btn.grid(row=14, column=0, columnspan=3) """
+        self.trying_btn.grid(row=13, column=0, columnspan=3) """
 
         #start the queue manager for the multiprocessing
         manager = multiprocessing.Manager()
@@ -1035,28 +1006,6 @@ class CameraControlView(gb.FrameWidget):
             
             #if its an experiment with more than one stumulus, start the process
             if self.stim.active_type>=3:
-                
-                #get the list of right stimuli coordinates and wrong stimuli coordinates
-                all_right_coords_orig=self.stim.view[1].right_stimu_coords
-                all_wrong_coords_orig=self.stim.view[1].wrong_stimu_coords
-                
-                #convert the right stimuli coordinates
-                all_right_coord_convert = [
-                    [
-                        apply_homography(pair, self.h)
-                        for pair in inner
-                    ]
-                    for inner in all_right_coords_orig
-                ]
-
-                #convert the right stimuli coordinates
-                all_wrong_coord_convert = [
-                    [
-                        apply_homography(pair, self.h)
-                        for pair in inner
-                    ]
-                    for inner in all_wrong_coords_orig
-                ]
 
                 #get the response of the user in the gui about the sensitivity to changes in the movement detector and the duration of changes before triggering the reward
                 autoD_duration=float(self.detect_duration.get_input().strip())
@@ -1065,8 +1014,14 @@ class CameraControlView(gb.FrameWidget):
                 index = self.stim.view[1].cards.index(self.stim.view[1].current_card)
 
                 #get the coordinates of the correct and incorrect stimuli
-                right_coord_convert=all_right_coord_convert[index]
-                wrong_coord_convert=all_wrong_coord_convert[index]
+                right_coords_orig=self.stim.view[1].right_stimu_coords[index]
+                wrong_coords_orig=self.stim.view[1].wrong_stimu_coords[index]
+
+                #convert the coordinates to approximate the corresponding pixels on the video using the original coordinates and the homography matrix obtained with the manual calibration
+                right_x_convert, right_y_convert=apply_homography(right_coords_orig,self.h)
+                right_coord_convert=[right_x_convert,right_y_convert]
+                wrong_x_convert, wrong_y_convert=apply_homography(wrong_coords_orig,self.h)
+                wrong_coord_convert=[wrong_x_convert,wrong_y_convert]
 
                 #start the tracking process
                 thrd_detect = multiprocessing.Process(target=movement_detect_flexi,kwargs={"masking":self.mask, "stimulus_image":self.image_for_making_mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration,"auto_reward":activ_autoR,"right_stimu_coord":right_coord_convert,"wrong_stimu_coord":wrong_coord_convert,"sensitivity":autoD_sensitivity,"mini_size":autoD_mini_size,"maxi_size":autoD_maxi_size}, daemon=True)
@@ -1348,33 +1303,6 @@ class CameraControlView(gb.FrameWidget):
             autoD_mini_size=float(self.detect_minimum_size.get_input().strip())
             autoD_maxi_size=float(self.detect_maximum_size.get_input().strip())
 
-            #if it is a trial with multiple stimuli, we convert the coordinate from cards coordinate system to the camera coordinate system
-            if self.stim.active_type>=3:
-                
-                #get the list of right stimuli coordinates and wrong stimuli coordinates
-                #the structure needs to be [[[Xa1,Ya1],[Xa2,Ya2]],[[Xb1,Yb1],[Xb2,Yb2]]] for trial a and b and stimuli 1 and 2 within each
-                all_right_coords_orig=self.stim.view[1].right_stimu_coords
-                all_wrong_coords_orig=self.stim.view[1].wrong_stimu_coords
-                
-                #convert the right stimuli coordinates
-                all_right_coord_convert = [
-                    [
-                        apply_homography(pair, self.h)
-                        for pair in inner
-                    ]
-                    for inner in all_right_coords_orig
-                ]
-
-                #convert the right stimuli coordinates
-                all_wrong_coord_convert = [
-                    [
-                        apply_homography(pair, self.h)
-                        for pair in inner
-                    ]
-                    for inner in all_wrong_coords_orig
-                ]
-
-
         #for each trials
         for i in range(nb_trial_to_run):
         
@@ -1447,10 +1375,15 @@ class CameraControlView(gb.FrameWidget):
                     #get the index of the card currently displayed
                     index = self.stim.view[1].cards.index(self.stim.view[1].current_card)
 
-                    #get the converted coordinates of the correct and incorrect stimuli
-                    right_coord_convert=all_right_coord_convert[index]
-                    wrong_coord_convert=all_wrong_coord_convert[index]
+                    #get the coordinates of the correct and incorrect stimuli
+                    right_coords_orig=self.stim.view[1].right_stimu_coords[index]
+                    wrong_coords_orig=self.stim.view[1].wrong_stimu_coords[index]
 
+                    #convert the coordinates to approximate the corresponding pixels on the video using the original coordinates and the homography matrix obtained with the manual calibration
+                    right_x_convert, right_y_convert=apply_homography(right_coords_orig,self.h)
+                    right_coord_convert=[right_x_convert,right_y_convert]
+                    wrong_x_convert, wrong_y_convert=apply_homography(wrong_coords_orig,self.h)
+                    wrong_coord_convert=[wrong_x_convert,wrong_y_convert]
 
                     #start the tracking process
                     thrd_detect = multiprocessing.Process(target=movement_detect_flexi,kwargs={"masking":self.mask, "stimulus_image":first_stim_image, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration,"auto_reward":activ_autoR,"right_stimu_coord":right_coord_convert,"wrong_stimu_coord":wrong_coord_convert,"sensitivity":autoD_sensitivity,"mini_size":autoD_mini_size,"maxi_size":autoD_maxi_size}, daemon=True)
