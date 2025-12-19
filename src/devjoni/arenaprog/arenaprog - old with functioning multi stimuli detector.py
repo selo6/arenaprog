@@ -162,13 +162,9 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None, vid_
     return mask_clean, stimu_for_mask_image #we return the mask and the image used to make it as we need it sometimes in other processes
 
 
-def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_detec_q=None,stop_mov_detec_q=None,next_loop_q=None,time_limit=1,auto_reward="n",right_stimu_coord=None,wrong_stimu_coord=None,sensitivity=50,mini_size=5,maxi_size=300):
+def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_detec_q=None,stop_mov_detec_q=None,next_loop_q=None,time_limit=1,auto_reward="n",right_stimu_coord=None,wrong_stimu_coord=None):
     """Movement detection only in the area of the stimuli that allows for the determining of which of the stimuli the fly choose in a multiple stimuli experiment. It compares the first frame with the stimuli displayed with teh current frame (both covered with the same mask that keeps only the stimuli area visible)
-    to locate where the image changed over the stimuli. In the case of multiple stimuli, this should allow for getting the location of the area that change to see if it is close to the centre of mass of which stimulus.
-    time_limit --> The duration during which the object needs to be detected to trigger the reaction (reward and/or stopping the trial).
-    sensitivity --> Threshold of luminosity difference between the object for detection and the background of the stimulus.
-    mini_size --> minimum size (without unit) to be considered as a detected object.
-    maxi_size --> maximum size (without unit) to be considered as a detected object."""
+    to locate where the image changed over the stimuli. In the case of multiple stimuli, this should allow for getting the location of the area that change to see if it is close to the centre of mass of which stimulus."""
 
     #stop the definition if there is no mask passed
     if masking is None or stimulus_image is None:
@@ -204,7 +200,7 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
             diff_stimu = cv2.absdiff(stimulus_masked, current_frame_masked)
 
             # --- Threshold to extract changed pixels ---
-            _, changed_pix = cv2.threshold(diff_stimu, sensitivity, 255, cv2.THRESH_BINARY)
+            _, changed_pix = cv2.threshold(diff_stimu, 50, 255, cv2.THRESH_BINARY)
             
 
             # --- Clean noise ---
@@ -219,7 +215,7 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
             list_contour_kept=[]
             for c_2 in contours_changes:
                 print("Contour size: ", cv2.contourArea(c_2))
-                if cv2.contourArea(c_2) < maxi_size and cv2.contourArea(c_2) > mini_size:  # keep only "real" stimuli, as determined by its size
+                if cv2.contourArea(c_2) < 300 and cv2.contourArea(c_2) > 5:  # keep only "real" stimuli
                     list_contour_kept.append(c_2)
             print("number of object detected: ", len(list_contour_kept))
 
@@ -233,35 +229,28 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
                     moment_detect=time.time() #grab the time
                     frame_detect_switch+=1 #switch to 1 to indicate that there is a detection in progress
                     #print("switch ON")
-                else: #if it is not the first frame with a detection
+                if frame_detect_switch==1:
                     print(f"Detection running for {time.time() - moment_detect:.2f}s")
                     diff_time=(time.time() - moment_detect) #compute the duration of the change
 
                     if diff_time>time_limit: #if it is not the first frame, then we check how long the detection lasted and if it is over the limit indicated. If so, we trigger the reward.
-                        
-                        if auto_reward=="y":
-                        
-                            if wrong_stimu_coord is None: #if the user wants the reward and the experiment is with a single stimulus (there is no wrong coordinate because there is no wrong stimulus), we send the reward
-                                next_loop_q.put("reward") #send the signal to trigger the reward
-                                time.sleep(1) #wait 1 second
 
-                            else:#if there are several stimuli, we need to check which one was visited
+                        #compute the centre of the object detected
+                        M = cv2.moments(list_contour_kept[0])
+                        cX = int(M["m10"] / M["m00"])
+                        cY = int(M["m01"] / M["m00"])
 
-                                #compute the centre of the object detected
-                                M = cv2.moments(list_contour_kept[0])
-                                cX = int(M["m10"] / M["m00"])
-                                cY = int(M["m01"] / M["m00"])
+                        object_coords=[cX,cY]
 
-                                object_coords=[cX,cY]
-
-                                if np.linalg.norm(np.array(object_coords) - np.array(right_stimu_coord)) < np.linalg.norm(np.array(object_coords) - np.array(wrong_stimu_coord)): #if auto reward option is activated and the object is closer to the right stimulus centre than the wrong stimulus one, we give the reward
-                                    next_loop_q.put("reward") #send the signal to trigger the reward
-                                    time.sleep(1) #wait 1 second
+                        if auto_reward=="y" and np.linalg.norm(np.array(object_coords) - np.array(right_stimu_coord)) < np.linalg.norm(np.array(object_coords) - np.array(wrong_stimu_coord)): #if auto reward option is activated and the object is closer to the right stimulus centre than the wrong stimulus one, we give the reward
+                            next_loop_q.put("reward") #send the signal to trigger the reward
+                            time.sleep(1) #wait 1 second
 
                         q_video.put("stop") #send the signal to stop the recording
 
-                        break #stop the loop
-
+                        #after doing things we need, we close the camera windows and stop the loop
+                        #cv2.destroyAllWindows()
+                        break   
             elif len(list_contour_kept)==0:  #if there is no detection in the currect frame, set (or reset) the switch to 0
                 #set the switch to 0
                 frame_detect_switch=0
@@ -288,11 +277,11 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
             pass
             
 
-#this process to detect objects over a single stimulus is a little too sensitive. The other process works better (now adapted for both single and double stimuli)
-""" def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_q=None,next_loop_q=None,time_limit=1,sensitivity=3,auto_reward="n"):
-    #function to apply a mask and detect the presence of a new object (e.g. a fly) in images sent from the recording loop, based on changes in gray levels.
-    #A masking needs to be given based on the create_calib_mask definition.
-    #It also needs a queue to communicate with the other processes (q_video) and one to receive the images to analyse (mov_detec_q).
+
+def movement_detect(masking=None, q_video=None, mov_detec_q=None,stop_mov_detec_q=None,next_loop_q=None,time_limit=1,sensitivity=3,auto_reward="n"):
+    """function to apply a mask and detect the presence of a new object (e.g. a fly) in images sent from the recording loop, based on changes in gray levels.
+    A masking needs to be given based on the create_calib_mask definition.
+    It also needs a queue to communicate with the other processes (q_video) and one to receive the images to analyse (mov_detec_q)."""
 
     #stop the definition if there is no mask passed
     if masking is None:
@@ -375,7 +364,7 @@ def movement_detect_flexi(masking=None, stimulus_image=None, q_video=None, mov_d
             if msg_mov == "stop":
                 break
         except Empty:
-            pass """
+            pass
 
 
 def record_video_cv2(camera=None,duration=0, vid_w = 1280, vid_h = 800, preview_rate=10, save_path=None, working_folder=os.getcwd(), name_of_video="Video.avi", indiv_name="Fly1", trial_number=None, save_codec='XVID', full_exp='n', auto_detection='n',mov_detec_q=None,stop_mov_detec_q=None,next_card_q=None,next_loop_q=None,q_video=None):
@@ -857,7 +846,7 @@ class CameraControlView(gb.FrameWidget):
         self.sensitivity_text.grid(row=6, column=0, sticky='WE')
 
         self.sensitivity = gb.EntryWidget(self)
-        self.sensitivity.set_input('50')
+        self.sensitivity.set_input('3')
         self.sensitivity.grid(row=6,column=1)
 
         self.detect_duration_text = gb.TextWidget(self, 'Detection duration (s):')
@@ -867,46 +856,32 @@ class CameraControlView(gb.FrameWidget):
         self.detect_duration.set_input('1')
         self.detect_duration.grid(row=7,column=1)
 
-        self.detect_minimum_size_text = gb.TextWidget(self, 'Object detection minimum size:')
-        self.detect_minimum_size_text.grid(row=8, column=0, sticky='WE')
-
-        self.detect_minimum_size = gb.EntryWidget(self)
-        self.detect_minimum_size.set_input('5')
-        self.detect_minimum_size.grid(row=8,column=1)
-
-        self.detect_maximum_size_text = gb.TextWidget(self, 'Object detection maximum size:')
-        self.detect_maximum_size_text.grid(row=9, column=0, sticky='WE')
-
-        self.detect_maximum_size = gb.EntryWidget(self)
-        self.detect_maximum_size.set_input('300')
-        self.detect_maximum_size.grid(row=9,column=1)
-
         self.auto_reward_text = gb.TextWidget(self, 'Automatic reward (y/n):')
-        self.auto_reward_text.grid(row=10, column=0, sticky='WE')
+        self.auto_reward_text.grid(row=8, column=0, sticky='WE')
 
         self.auto_reward = gb.EntryWidget(self)
         self.auto_reward.set_input('y')
-        self.auto_reward.grid(row=10,column=1)
+        self.auto_reward.grid(row=8,column=1)
 
         self.calibration_btn = gb.ButtonWidget(self, text='Manual Calibration', command=self.calibration)
-        self.calibration_btn.grid(row=11, column=0)
+        self.calibration_btn.grid(row=9, column=0)
 
         self.auto_calibration_btn = gb.ButtonWidget(self, text='Auto Calibration', command=self.auto_calibration)
-        self.auto_calibration_btn.grid(row=11, column=1)
+        self.auto_calibration_btn.grid(row=9, column=1)
 
         self.create_calib_mask_btn = gb.ButtonWidget(self, text='Create Mask', command=self.run_create_calib_mask)
-        self.create_calib_mask_btn.grid(row=11, column=2)
+        self.create_calib_mask_btn.grid(row=9, column=2)
 
         self.full_experiment_btn = gb.ButtonWidget(self, text='Run Experiment', command=self.run_full_experiment_process)
-        self.full_experiment_btn.grid(row=11, column=0, columnspan=3)
+        self.full_experiment_btn.grid(row=10, column=0, columnspan=3)
         self.full_experiment_btn.set(bg='green')
 
         self.stop_full_experiment_btn = gb.ButtonWidget(self, text='Stop Experiment', command=self.stop_full_experiment_process)
-        self.stop_full_experiment_btn.grid(row=12, column=0, columnspan=3)
+        self.stop_full_experiment_btn.grid(row=11, column=0, columnspan=3)
         self.stop_full_experiment_btn.set(bg='red')
 
         """ self.trying_btn = gb.ButtonWidget(self, text='Trying stuff', command=self.trying_stuff)
-        self.trying_btn.grid(row=13, column=0, columnspan=3) """
+        self.trying_btn.grid(row=12, column=0, columnspan=3) """
 
         #start the queue manager for the multiprocessing
         manager = multiprocessing.Manager()
@@ -983,49 +958,39 @@ class CameraControlView(gb.FrameWidget):
         #deactivate the buttons so the user doesn't try to trigger another recording or preview while one is running
         self.disable_controls()
         
-        #if the autodetection is wanted 
-        if activ_autoD=="y":
+        #if the autodetection is wanted and its a single stimulus experiment, start the process
+        if activ_autoD=="y" and self.stim.active_type<3:
 
             #get the response of the user in the gui about the sensitivity to changes in the movement detector and the duration of changes before triggering the reward
             autoD_sensitivity=float(self.sensitivity.get_input().strip())
             autoD_duration=float(self.detect_duration.get_input().strip())
-            autoD_mini_size=float(self.detect_minimum_size.get_input().strip())
-            autoD_maxi_size=float(self.detect_maximum_size.get_input().strip())
 
+            #start the tracking process
+            thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration, "sensitivity":autoD_sensitivity,"auto_reward":activ_autoR}, daemon=True)
+            thrd_detect.start()
+        
+        #if the autodetection is wanted and its an experiment with more than one stumulus, start the process
+        if activ_autoD=="y" and self.stim.active_type>=3:
+
+            #get the response of the user in the gui about the sensitivity to changes in the movement detector and the duration of changes before triggering the reward
+            autoD_duration=float(self.detect_duration.get_input().strip())
             
-            #if its a single stimulus experiment, start the process
-            if self.stim.active_type<3:
+            #get the index of the card currently displayed
+            index = self.stim.view[1].cards.index(self.stim.view[1].current_card)
 
-                #start the tracking process (old version, not used anymore)
-                """ thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration, "sensitivity":autoD_sensitivity,"auto_reward":activ_autoR}, daemon=True)
-                thrd_detect.start() """
+            #get the coordinates of the correct and incorrect stimuli
+            right_coords_orig=self.stim.view[1].right_stimu_coords[index]
+            wrong_coords_orig=self.stim.view[1].wrong_stimu_coords[index]
 
-                #start the tracking process
-                thrd_detect = multiprocessing.Process(target=movement_detect_flexi,kwargs={"masking":self.mask, "stimulus_image":self.image_for_making_mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration,"auto_reward":activ_autoR,"sensitivity":autoD_sensitivity,"mini_size":autoD_mini_size,"maxi_size":autoD_maxi_size}, daemon=True)
-                thrd_detect.start()
-            
-            #if its an experiment with more than one stumulus, start the process
-            if self.stim.active_type>=3:
+            #convert the coordinates to approximate the corresponding pixels on the video using the original coordinates and the homography matrix obtained with the manual calibration
+            right_x_convert, right_y_convert=apply_homography(right_coords_orig,self.h)
+            right_coord_convert=[right_x_convert,right_y_convert]
+            wrong_x_convert, wrong_y_convert=apply_homography(wrong_coords_orig,self.h)
+            wrong_coord_convert=[wrong_x_convert,wrong_y_convert]
 
-                #get the response of the user in the gui about the sensitivity to changes in the movement detector and the duration of changes before triggering the reward
-                autoD_duration=float(self.detect_duration.get_input().strip())
-                
-                #get the index of the card currently displayed
-                index = self.stim.view[1].cards.index(self.stim.view[1].current_card)
-
-                #get the coordinates of the correct and incorrect stimuli
-                right_coords_orig=self.stim.view[1].right_stimu_coords[index]
-                wrong_coords_orig=self.stim.view[1].wrong_stimu_coords[index]
-
-                #convert the coordinates to approximate the corresponding pixels on the video using the original coordinates and the homography matrix obtained with the manual calibration
-                right_x_convert, right_y_convert=apply_homography(right_coords_orig,self.h)
-                right_coord_convert=[right_x_convert,right_y_convert]
-                wrong_x_convert, wrong_y_convert=apply_homography(wrong_coords_orig,self.h)
-                wrong_coord_convert=[wrong_x_convert,wrong_y_convert]
-
-                #start the tracking process
-                thrd_detect = multiprocessing.Process(target=movement_detect_flexi,kwargs={"masking":self.mask, "stimulus_image":self.image_for_making_mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration,"auto_reward":activ_autoR,"right_stimu_coord":right_coord_convert,"wrong_stimu_coord":wrong_coord_convert,"sensitivity":autoD_sensitivity,"mini_size":autoD_mini_size,"maxi_size":autoD_maxi_size}, daemon=True)
-                thrd_detect.start()
+            #start the tracking process
+            thrd_detect = multiprocessing.Process(target=movement_detect_flexi,kwargs={"masking":self.mask, "stimulus_image":self.image_for_making_mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration,"auto_reward":activ_autoR,"right_stimu_coord":right_coord_convert,"wrong_stimu_coord":wrong_coord_convert}, daemon=True)
+            thrd_detect.start()
 
         #start the recording using a new thread from the cpu so the main GUI stays active, pass the optional arguments to the function
         thrd_record = multiprocessing.Process(target=record_video_cv2,kwargs={"camera":self.camera, "working_folder":folder_path, "name_of_video":video_name, "indiv_name":individual_name,"save_path": None, "save_codec": "DIVX", "auto_detection":activ_autoD, "mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q, "next_card_q":self.next_card_q, "next_loop_q":self.next_loop_q, "q_video":self.q_video}, daemon=True)
@@ -1300,8 +1265,6 @@ class CameraControlView(gb.FrameWidget):
             #get the response of the user in the gui about the sensitivity to changes in the movement detector and the duration of changes before triggering the reward
             autoD_sensitivity=float(self.sensitivity.get_input().strip())
             autoD_duration=float(self.detect_duration.get_input().strip())
-            autoD_mini_size=float(self.detect_minimum_size.get_input().strip())
-            autoD_maxi_size=float(self.detect_maximum_size.get_input().strip())
 
         #for each trials
         for i in range(nb_trial_to_run):
@@ -1361,12 +1324,8 @@ class CameraControlView(gb.FrameWidget):
 
                 if self.stim.active_type<3:
             
-                    #generate the movement detection process and start(old version, not used anymore)
-                    """ thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration, "sensitivity":autoD_sensitivity,"auto_reward":activ_autoR}, daemon=True)
-                    thrd_detect.start() """
-
-                    #start the movement detection process
-                    thrd_detect = multiprocessing.Process(target=movement_detect_flexi,kwargs={"masking":self.mask, "stimulus_image":first_stim_image, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration,"auto_reward":activ_autoR,"sensitivity":autoD_sensitivity,"mini_size":autoD_mini_size,"maxi_size":autoD_maxi_size}, daemon=True)
+                    #generate the movement detection process and start
+                    thrd_detect = multiprocessing.Process(target=movement_detect,kwargs={"masking":self.mask, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration, "sensitivity":autoD_sensitivity,"auto_reward":activ_autoR}, daemon=True)
                     thrd_detect.start()
 
                 #if the autodetection is wanted and its an experiment with more than one stumulus, start the process
@@ -1386,7 +1345,7 @@ class CameraControlView(gb.FrameWidget):
                     wrong_coord_convert=[wrong_x_convert,wrong_y_convert]
 
                     #start the tracking process
-                    thrd_detect = multiprocessing.Process(target=movement_detect_flexi,kwargs={"masking":self.mask, "stimulus_image":first_stim_image, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration,"auto_reward":activ_autoR,"right_stimu_coord":right_coord_convert,"wrong_stimu_coord":wrong_coord_convert,"sensitivity":autoD_sensitivity,"mini_size":autoD_mini_size,"maxi_size":autoD_maxi_size}, daemon=True)
+                    thrd_detect = multiprocessing.Process(target=movement_detect_flexi,kwargs={"masking":self.mask, "stimulus_image":first_stim_image, "q_video":self.q_video,"mov_detec_q":self.mov_detec_q, "stop_mov_detec_q":self.stop_mov_detec_q,"next_loop_q":self.next_loop_q, "time_limit":autoD_duration,"auto_reward":activ_autoR,"right_stimu_coord":right_coord_convert,"wrong_stimu_coord":wrong_coord_convert}, daemon=True)
                     thrd_detect.start()
 
             #Save the card displayed
