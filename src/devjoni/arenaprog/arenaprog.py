@@ -147,7 +147,7 @@ def create_calib_mask(camera_index=None, image=None, calib_background=None, vid_
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     mask_clean = np.zeros_like(mask)
     for c in contours:
-        if cv2.contourArea(c) > 100:  # keep only "real" stimuli
+        if cv2.contourArea(c) > 500:  # keep only "real" stimuli
             cv2.drawContours(mask_clean, [c], -1, 255, -1)
             print("Mask found")
 
